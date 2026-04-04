@@ -17,7 +17,7 @@ export interface Citation {
 }
 
 export interface ProgressEvent {
-  type: "status" | "complete" | "error"
+  type: "status" | "complete" | "error" | "ping"
   step: string
   detail?: string
   downloadUrl?: string
