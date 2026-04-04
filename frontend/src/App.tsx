@@ -4,11 +4,24 @@ import { ProgressTracker } from './components/ProgressTracker'
 import type { ProgressEvent } from '../../shared/types'
 
 type AppState = 'form' | 'generating'
+type ServerStatus = 'unknown' | 'checking' | 'ready' | 'cold'
 
 export default function App() {
   const [state, setState] = useState<AppState>('form')
   const [events, setEvents] = useState<ProgressEvent[]>([])
   const [meta, setMeta] = useState({ companyName: '', country: '', sector: '' })
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('unknown')
+
+  const checkServer = async () => {
+    setServerStatus('checking')
+    try {
+      const res = await fetch(`${import.meta.env.VITE_BACKEND_URL ?? ''}/health`)
+      if (res.ok) setServerStatus('ready')
+      else setServerStatus('cold')
+    } catch {
+      setServerStatus('cold')
+    }
+  }
 
   const handleSubmit = async (formData: FormData) => {
     setMeta({
@@ -44,12 +57,12 @@ export default function App() {
   }
 
   return state === 'form'
-    ? <InputForm onSubmit={handleSubmit} />
+    ? <InputForm onSubmit={handleSubmit} serverStatus={serverStatus} onCheckServer={checkServer} />
     : <ProgressTracker
         events={events}
         companyName={meta.companyName}
         country={meta.country}
         sector={meta.sector}
-        onReset={() => { setState('form'); setEvents([]) }}
+        onReset={() => { setState('form'); setEvents([]); setServerStatus('unknown') }}
       />
 }
