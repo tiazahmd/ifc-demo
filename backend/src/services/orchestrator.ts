@@ -51,7 +51,7 @@ export async function buildResearchBrief(
   await emit({ type: 'status', step: 'building_research_brief', detail: 'Orchestrator — Analysing inputs. Building Perplexity research brief...' })
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-6-20251101',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4000,
     thinking: THINKING,
     system: PHASE1_SYSTEM,
@@ -80,7 +80,7 @@ export async function buildDeckInstructions(
   const userMsg = `Company: ${input.companyName} | Country: ${input.country} | Sector: ${input.sector}\n\n--- Research Report ---\n${report}\n\n--- Citations ---\n${citationBlock}`
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-6-20251101',
+    model: 'claude-sonnet-4-6',
     max_tokens: 8000,
     thinking: THINKING,
     system: PHASE2_SYSTEM,
