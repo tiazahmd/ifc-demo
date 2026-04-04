@@ -49,6 +49,7 @@ export default function App() {
         if (line.startsWith('data: ')) {
           try {
             const event: ProgressEvent = JSON.parse(line.slice(6))
+            if (event.type === 'ping') continue  // keepalive, ignore
             setEvents(e => [...e, event])
           } catch { /* skip malformed */ }
         }
