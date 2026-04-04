@@ -16,13 +16,16 @@ interface ResearchResult {
 class ThinResearchError extends Error {}
 
 async function submitResearch(brief: string): Promise<string> {
+  // Truncate brief to ~8000 chars — Perplexity needs a focused query, not a novel
+  const truncatedBrief = brief.length > 8000 ? brief.slice(0, 8000) + '\n\n[Brief truncated for length]' : brief
+
   const res = await fetch(`${BASE}/v1/async/sonar`, {
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify({
       request: {
         model: 'sonar-deep-research',
-        messages: [{ role: 'user', content: brief }],
+        messages: [{ role: 'user', content: truncatedBrief }],
       }
     }),
   })

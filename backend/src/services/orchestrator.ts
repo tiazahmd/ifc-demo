@@ -7,18 +7,21 @@ const THINKING = { type: 'enabled' as const, budget_tokens: 8000 }
 const MAX_TOKENS_PHASE1 = 10000  // must exceed budget_tokens
 const MAX_TOKENS_PHASE2 = 16000
 
-const PHASE1_SYSTEM = `You are an IFC advisory research coordinator. Your job is to generate a comprehensive, structured research brief for Perplexity's deep research model.
+const PHASE1_SYSTEM = `You are an IFC advisory research coordinator. Generate a CONCISE, focused research brief for Perplexity's deep research model. Maximum 2000 words.
 
-The brief must instruct Perplexity to research everything needed for a 12-slide IFC Buy-Side Advisory Discussion Document:
-1. Company profile (history, ownership, leadership, operations)
-2. Financial highlights (revenue, EBITDA, assets, debt, key ratios — last 3 years)
-3. Industry & market context (market size, competitors, trends, regulatory environment)
-4. Country & macro environment (GDP, investment climate, political stability, FX)
+The brief must be structured as clear numbered research questions covering:
+1. Company profile (history, ownership, leadership, operations, size)
+2. Financial highlights (revenue, EBITDA, assets, debt — last 3 years)
+3. Industry & market (market size, competitors, trends, regulatory environment)
+4. Country & macro (GDP, investment climate, political stability, FX)
 5. IFC track record in this sector/region (past transactions, strategic priorities)
 
-Format the brief as clear, numbered research instructions. Specify which sources to prioritise (company IR pages, IFC.org, Bloomberg, Reuters, World Bank data).
+Format: numbered questions + bullet sub-points. Be specific and direct.
+Prioritise sources: company IR pages, IFC.org, Bloomberg, Reuters, World Bank.
 
-If uploaded documents contain relevant data, extract and surface the key facts so Perplexity searches for corroborating and supplementary information — not what is already known.`
+If uploaded documents contain data, extract key facts as context so Perplexity searches for corroborating information — not what is already known.
+
+IMPORTANT: Keep the brief under 2000 words. Perplexity works best with focused, specific questions.`
 
 const PHASE2_SYSTEM = `You are an IFC pitch deck content architect. You receive a deep research report and produce structured markdown slide instructions for Gamma AI.
 
