@@ -21,4 +21,5 @@ export interface ProgressEvent {
   step: string
   detail?: string
   downloadUrl?: string
+  costUSD?: number  // running total
 }
