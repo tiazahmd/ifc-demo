@@ -79,10 +79,8 @@ async function pollResearch(
 
     dbg(`Poll #${pollCount} (${elapsed}s): HTTP ${res.status} | ${rawBody.slice(0, 200)}`)
 
-    // Emit raw poll response every 3rd poll so we can see what's happening
-    if (pollCount % 3 === 0 || res.status !== 200) {
-      await emit({ type: 'status', step: 'researching', detail: `Perplexity — Poll #${pollCount} (${elapsed}s): HTTP ${res.status} | ${rawBody.slice(0, 400)}` })
-    }
+    // Emit raw poll response on EVERY poll so we can see the structure
+    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Poll #${pollCount} (${elapsed}s): HTTP ${res.status} | ${rawBody.slice(0, 500)}` })
 
     if (res.status === 429) {
       await emit({ type: 'status', step: 'researching', detail: `Perplexity — Rate limit (429). Waiting 30s...` })
