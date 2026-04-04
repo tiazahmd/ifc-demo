@@ -106,7 +106,7 @@ export function ProgressTracker({ events, companyName, country, sector, onReset 
               {STEPS.map((step, i) => {
                 const done = isDone || i < currentStepIdx || (i === currentStepIdx && ['research_complete','done'].includes(latestEvent?.step))
                 const active = !isDone && i === currentStepIdx
-                const detail = events.findLast(e => stepIndex(e.step) === i)?.detail
+                const detail = [...events].reverse().find(e => stepIndex(e.step) === i)?.detail
 
                 return (
                   <div key={step.key} className="flex items-start gap-3">
