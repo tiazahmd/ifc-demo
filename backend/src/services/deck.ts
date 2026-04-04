@@ -1,4 +1,4 @@
-import type { ProgressEvent } from '../../../shared/types.js'
+import type { ProgressEvent } from '../types.js'
 
 const BASE = 'https://public-api.gamma.app/v1.0'
 const HEADERS = {

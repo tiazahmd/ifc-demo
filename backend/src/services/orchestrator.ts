@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { UserInput, Citation, ProgressEvent } from '../../../shared/types.js'
+import type { UserInput, Citation, ProgressEvent } from '../types.js'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 

@@ -1,4 +1,4 @@
-import type { Citation, ProgressEvent } from '../../../shared/types.js'
+import type { Citation, ProgressEvent } from '../types.js'
 
 const BASE = 'https://api.perplexity.ai'
 const HEADERS = {

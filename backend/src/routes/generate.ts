@@ -5,7 +5,7 @@ import { extractFileContents } from '../services/files.js'
 import { buildResearchBrief, buildDeckInstructions } from '../services/orchestrator.js'
 import { runDeepResearch } from '../services/research.js'
 import { generateDeck } from '../services/deck.js'
-import type { ProgressEvent } from '../../../shared/types.js'
+import type { ProgressEvent } from '../types.js'
 
 export const generateRoute = new Hono()
 
