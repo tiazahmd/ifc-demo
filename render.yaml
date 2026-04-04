@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: ifc-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: GAMMA_API_KEY
+        sync: false
+      - key: GAMMA_THEME_ID
+        sync: false
+      - key: FRONTEND_URL
+        sync: false

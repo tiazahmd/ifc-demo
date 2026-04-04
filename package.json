@@ -1,0 +1,5 @@
+{
+  "name": "ifc-pitch-engine",
+  "private": true,
+  "workspaces": ["backend", "frontend", "shared"]
+}
