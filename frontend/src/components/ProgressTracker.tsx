@@ -62,7 +62,7 @@ export function ProgressTracker({ events, companyName, country, sector, onReset 
   const latestEvent = events[events.length - 1]
   const isDone = latestEvent?.type === 'complete'
   const isError = latestEvent?.type === 'error'
-  const currentStepIdx = Math.max(...events.map(e => stepIndex(e.step)))
+  const currentStepIdx = events.length > 0 ? Math.max(...events.map(e => stepIndex(e.step))) : -1
 
   useEffect(() => {
     const last = events[events.length - 1]

@@ -19,7 +19,7 @@ export default function App() {
     setEvents([])
     setState('generating')
 
-    const res = await fetch('/generate', { method: 'POST', body: formData })
+    const res = await fetch(`${import.meta.env.VITE_BACKEND_URL ?? ''}/generate`, { method: 'POST', body: formData })
     if (!res.body) return
 
     const reader = res.body.getReader()
