@@ -63,7 +63,8 @@ export async function buildResearchBrief(
   const text = response.content.find(b => b.type === 'text')
   if (!text || text.type !== 'text') throw new Error('No research brief generated')
 
-  await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — Research brief complete.` })
+  await emit({ type: 'status', step: 'building_research_brief', detail: 'Orchestrator — Brief complete.' })
+  await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — Research Brief:\n${text.text}` })
   return text.text
 }
 
@@ -93,5 +94,6 @@ export async function buildDeckInstructions(
   if (!text || text.type !== 'text') throw new Error('No deck instructions generated')
 
   await emit({ type: 'status', step: 'orchestrating', detail: 'Orchestrator — Deck instructions complete.' })
+  await emit({ type: 'status', step: 'orchestrating', detail: `Orchestrator — Deck Instructions:\n${text.text}` })
   return text.text
 }
