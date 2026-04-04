@@ -2,9 +2,11 @@ import { useState, useRef } from 'react'
 
 interface Props {
   onSubmit: (formData: FormData) => void
+  serverStatus: 'unknown' | 'checking' | 'ready' | 'cold'
+  onCheckServer: () => void
 }
 
-export function InputForm({ onSubmit }: Props) {
+export function InputForm({ onSubmit, serverStatus, onCheckServer }: Props) {
   const [links, setLinks] = useState<string[]>([])
   const [linkInput, setLinkInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -128,12 +130,37 @@ export function InputForm({ onSubmit }: Props) {
             />
           </div>
 
-          <button
-            type="submit"
-            className="w-full bg-navy text-white py-3 rounded-lg font-medium text-sm hover:bg-navy/90 transition-colors flex items-center justify-center gap-2"
-          >
-            Generate Pitch Deck →
-          </button>
+          {serverStatus !== 'ready' ? (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={onCheckServer}
+                disabled={serverStatus === 'checking'}
+                className="w-full border border-navy text-navy py-3 rounded-lg font-medium text-sm hover:bg-navy/5 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {serverStatus === 'checking' ? (
+                  <><span className="inline-block w-4 h-4 border-2 border-navy border-t-transparent rounded-full spinner" /> Checking server...</>
+                ) : serverStatus === 'cold' ? (
+                  '⚠ Server offline — Retry Cold Start'
+                ) : (
+                  '⚡ Cold Start Server'
+                )}
+              </button>
+              {serverStatus === 'unknown' && (
+                <p className="text-xs text-center text-gray-400">Start the server before generating to avoid delays</p>
+              )}
+              {serverStatus === 'cold' && (
+                <p className="text-xs text-center text-red-400">Server did not respond. Try again in 30 seconds.</p>
+              )}
+            </div>
+          ) : (
+            <button
+              type="submit"
+              className="w-full bg-navy text-white py-3 rounded-lg font-medium text-sm hover:bg-navy/90 transition-colors flex items-center justify-center gap-2"
+            >
+              Generate Pitch Deck →
+            </button>
+          )}
         </form>
       </div>
     </div>
