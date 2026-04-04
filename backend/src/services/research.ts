@@ -1,5 +1,6 @@
 import type { Citation, ProgressEvent } from '../types.js'
 
+// NOTE: Correct base URL is without /v1 for async endpoints
 const BASE = 'https://api.perplexity.ai'
 const HEADERS = {
   'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
@@ -22,10 +23,10 @@ function dbg(msg: string) {
 async function submitResearch(brief: string, emit: (e: ProgressEvent) => Promise<void>): Promise<string> {
   const truncatedBrief = brief.length > 8000 ? brief.slice(0, 8000) + '\n\n[Brief truncated]' : brief
 
-  dbg(`Submitting to Perplexity. Brief length: ${truncatedBrief.length} chars`)
+  dbg(`Submitting. Brief: ${truncatedBrief.length} chars`)
   await emit({ type: 'status', step: 'researching', detail: `Perplexity — Submitting job. Brief: ${truncatedBrief.length} chars` })
 
-  const res = await fetch(`${BASE}/v1/async/sonar`, {
+  const res = await fetch(`${BASE}/async/chat/completions`, {
     method: 'POST',
     headers: HEADERS,
     body: JSON.stringify({
@@ -37,25 +38,21 @@ async function submitResearch(brief: string, emit: (e: ProgressEvent) => Promise
   })
 
   const rawBody = await res.text()
-  dbg(`Submit response: status=${res.status} body=${rawBody}`)
-  await emit({ type: 'status', step: 'researching', detail: `Perplexity — Submit response: HTTP ${res.status} | ${rawBody.slice(0, 300)}` })
+  dbg(`Submit: HTTP ${res.status} | ${rawBody.slice(0, 300)}`)
+  await emit({ type: 'status', step: 'researching', detail: `Perplexity — Submit: HTTP ${res.status} | ${rawBody.slice(0, 300)}` })
 
   if (res.status === 429) throw new Error('Perplexity rate limit (429). Try again in a minute.')
   if (!res.ok) throw new Error(`Perplexity submit failed: ${res.status} — ${rawBody}`)
 
-  const data = JSON.parse(rawBody) as { id?: string; status?: string; error?: string }
+  const data = JSON.parse(rawBody) as { id?: string; status?: string }
   if (!data.id) throw new Error(`No job ID returned: ${rawBody}`)
 
-  dbg(`Job ID: ${data.id}, initial status: ${data.status}`)
-  await emit({ type: 'status', step: 'researching', detail: `Perplexity — Job ID: ${data.id} | Initial status: ${data.status}` })
-
+  dbg(`Job ID: ${data.id}, status: ${data.status}`)
+  await emit({ type: 'status', step: 'researching', detail: `Perplexity — Job ID: ${data.id} | Status: ${data.status}` })
   return data.id
 }
 
-async function pollResearch(
-  id: string,
-  emit: (e: ProgressEvent) => Promise<void>
-): Promise<ResearchResult> {
+async function pollResearch(id: string, emit: (e: ProgressEvent) => Promise<void>): Promise<ResearchResult> {
   const start = Date.now()
   const MAX_WAIT = 30 * 60 * 1000
   let pollCount = 0
@@ -65,22 +62,21 @@ async function pollResearch(
     pollCount++
     const elapsed = Math.round((Date.now() - start) / 1000)
 
+    // WORKAROUND: Known Perplexity bug — GET /async/chat/completions/{id} returns list instead of single item
+    // and shows IN_PROGRESS even when COMPLETED. Use LIST endpoint and filter by ID instead.
     let res: Response
     let rawBody: string
     try {
-      res = await fetch(`${BASE}/v1/async/sonar/${id}`, { headers: HEADERS })
+      res = await fetch(`${BASE}/async/chat/completions?limit=20`, { headers: HEADERS })
       rawBody = await res.text()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      dbg(`Poll #${pollCount} network error: ${msg}`)
       await emit({ type: 'status', step: 'researching', detail: `Perplexity — Poll #${pollCount} network error: ${msg}` })
       continue
     }
 
-    dbg(`Poll #${pollCount} (${elapsed}s): HTTP ${res.status} | ${rawBody.slice(0, 200)}`)
-
-    // Emit raw poll response on EVERY poll so we can see the structure
-    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Poll #${pollCount} (${elapsed}s): HTTP ${res.status} | ${rawBody.slice(0, 500)}` })
+    dbg(`Poll #${pollCount} (${elapsed}s): HTTP ${res.status} | ${rawBody.slice(0, 300)}`)
+    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Poll #${pollCount} (${elapsed}s): HTTP ${res.status} | ${rawBody.slice(0, 400)}` })
 
     if (res.status === 429) {
       await emit({ type: 'status', step: 'researching', detail: `Perplexity — Rate limit (429). Waiting 30s...` })
@@ -90,40 +86,43 @@ async function pollResearch(
 
     if (!res.ok) throw new Error(`Poll failed: HTTP ${res.status} — ${rawBody}`)
 
-    const data = JSON.parse(rawBody) as {
-      status: string
-      error_message?: string
-      response?: {
-        choices: Array<{ message: { content: string } }>
-        citations?: string[]
-        search_results?: Array<{ title: string; url: string; snippet?: string }>
-        usage?: {
-          num_search_queries: number
-          completion_tokens: number
-          total_tokens: number
-          cost?: { total_cost: number }
-          total_cost?: number
-        }
-      }
+    type Job = { id: string; status: string; error_message?: string; response?: unknown }
+    let jobs: Job[]
+    try {
+      const parsed = JSON.parse(rawBody)
+      jobs = Array.isArray(parsed) ? parsed : (parsed.data ?? parsed.results ?? [parsed])
+    } catch {
+      await emit({ type: 'status', step: 'researching', detail: `Perplexity — Parse error: ${rawBody.slice(0, 200)}` })
+      continue
     }
 
-    if (data.status === 'FAILED') {
-      const errMsg = data.error_message ?? 'No error message'
-      dbg(`Job FAILED: ${errMsg}`)
+    const job = jobs.find(j => j.id === id)
+    if (!job) {
+      await emit({ type: 'status', step: 'researching', detail: `Perplexity — Job ${id} not in list of ${jobs.length}. IDs: ${jobs.map(j => j.id).slice(0, 5).join(', ')}` })
+      continue
+    }
+
+    dbg(`Job status: ${job.status}`)
+
+    if (job.status === 'FAILED') {
+      const errMsg = job.error_message ?? 'No error message'
       await emit({ type: 'status', step: 'researching', detail: `Perplexity — Job FAILED: ${errMsg}` })
       throw new Error(`Perplexity job failed: ${errMsg}`)
     }
 
-    if (data.status === 'COMPLETED' && data.response) {
-      const r = data.response
+    if (job.status === 'COMPLETED' && job.response) {
+      const r = job.response as {
+        choices: Array<{ message: { content: string } }>
+        citations?: string[]
+        search_results?: Array<{ title: string; url: string; snippet?: string }>
+        usage?: { completion_tokens: number; cost?: { total_cost: number }; total_cost?: number }
+      }
       const report = r.choices[0].message.content
       const sourceCount = r.search_results?.length ?? r.citations?.length ?? 0
       const totalCostNum = r.usage?.cost?.total_cost ?? r.usage?.total_cost ?? 0
-      const cost = totalCostNum.toFixed(2)
       const tokens = r.usage?.completion_tokens ?? 0
 
-      dbg(`COMPLETED. Sources: ${sourceCount}, tokens: ${tokens}, cost: $${cost}`)
-      await emit({ type: 'status', step: 'researching', detail: `Perplexity — COMPLETED. ${sourceCount} sources. ${tokens} tokens. Cost: $${cost}` })
+      await emit({ type: 'status', step: 'researching', detail: `Perplexity — COMPLETED. ${sourceCount} sources. ${tokens} tokens. Cost: $${totalCostNum.toFixed(2)}` })
 
       if (r.search_results?.length) {
         const citationLines = r.search_results.map((s, i) => `[${i + 1}] ${s.title ?? 'Source'}\n    ${s.url}`).join('\n')
@@ -138,17 +137,13 @@ async function pollResearch(
       return { report, citations, sourceCount, costUSD: totalCostNum }
     }
 
-    // Still IN_PROGRESS
-    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Researching... ${elapsed}s elapsed (poll #${pollCount}, status: ${data.status})` })
+    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Researching... ${elapsed}s (poll #${pollCount}, status: ${job.status})` })
   }
 
   throw new Error('Perplexity timed out after 30 minutes')
 }
 
-export async function runDeepResearch(
-  brief: string,
-  emit: (e: ProgressEvent) => Promise<void>
-): Promise<ResearchResult> {
+export async function runDeepResearch(brief: string, emit: (e: ProgressEvent) => Promise<void>): Promise<ResearchResult> {
   let currentBrief = brief
 
   for (let attempt = 1; attempt <= 3; attempt++) {
