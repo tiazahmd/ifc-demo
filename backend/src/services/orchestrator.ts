@@ -4,6 +4,8 @@ import type { UserInput, Citation, ProgressEvent } from '../types.js'
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const THINKING = { type: 'enabled' as const, budget_tokens: 8000 }
+const MAX_TOKENS_PHASE1 = 10000  // must exceed budget_tokens
+const MAX_TOKENS_PHASE2 = 16000
 
 const PHASE1_SYSTEM = `You are an IFC advisory research coordinator. Your job is to generate a comprehensive, structured research brief for Perplexity's deep research model.
 
@@ -52,7 +54,7 @@ export async function buildResearchBrief(
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4000,
+    max_tokens: MAX_TOKENS_PHASE1,
     thinking: THINKING,
     system: PHASE1_SYSTEM,
     messages: [{ role: 'user', content: userMsg }],
@@ -81,7 +83,7 @@ export async function buildDeckInstructions(
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 8000,
+    max_tokens: MAX_TOKENS_PHASE2,
     thinking: THINKING,
     system: PHASE2_SYSTEM,
     messages: [{ role: 'user', content: userMsg }],
