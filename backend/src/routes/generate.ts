@@ -15,6 +15,11 @@ generateRoute.post('/', async (c) => {
       await stream.writeSSE({ data: JSON.stringify(event) })
     }
 
+    // Keepalive: ping every 15s to prevent Render/proxy from killing the connection
+    const keepalive = setInterval(async () => {
+      await stream.writeSSE({ data: '{"type":"ping"}' })
+    }, 15_000)
+
     try {
       // Parse multipart form
       const formData = await c.req.formData()
@@ -59,6 +64,8 @@ generateRoute.post('/', async (c) => {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       await emit({ type: 'error', step: 'failed', detail: msg })
+    } finally {
+      clearInterval(keepalive)
     }
   })
 })
