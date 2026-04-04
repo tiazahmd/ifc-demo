@@ -34,6 +34,8 @@ generateRoute.post('/', async (c) => {
       const files = formData.getAll('files') as File[]
       const fileContents = await extractFileContents(files)
 
+      let totalCost = 0
+
       // Phase 1: Build Perplexity research brief
       await emit({ type: 'status', step: 'building_research_brief' })
       const brief = await buildResearchBrief(input, fileContents, emit)
@@ -41,8 +43,9 @@ generateRoute.post('/', async (c) => {
 
       // Research with retry
       await emit({ type: 'status', step: 'researching', detail: 'Running deep research (2-5 min)...' })
-      const { report, citations, sourceCount } = await runDeepResearch(brief, emit)
-      await emit({ type: 'status', step: 'research_complete', detail: `${sourceCount} sources found` })
+      const { report, citations, sourceCount, costUSD } = await runDeepResearch(brief, emit)
+      totalCost += costUSD
+      await emit({ type: 'status', step: 'research_complete', detail: `${sourceCount} sources found`, costUSD: totalCost })
 
       // Phase 2: Build deck instructions
       await emit({ type: 'status', step: 'orchestrating' })
@@ -52,7 +55,7 @@ generateRoute.post('/', async (c) => {
       await emit({ type: 'status', step: 'generating_deck' })
       const downloadUrl = await generateDeck(slideInstructions, emit)
 
-      await emit({ type: 'complete', step: 'done', downloadUrl })
+      await emit({ type: 'complete', step: 'done', downloadUrl, costUSD: totalCost })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       await emit({ type: 'error', step: 'failed', detail: msg })
