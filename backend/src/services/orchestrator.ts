@@ -41,7 +41,7 @@ export async function buildResearchBrief(
   input: UserInput,
   fileContents: string[],
   emit: (e: ProgressEvent) => Promise<void>
-): Promise<string> {
+): Promise<{ brief: string; costUSD: number }> {
   const userMsg = [
     `Company: ${input.companyName}`,
     `Country: ${input.country}`,
@@ -66,9 +66,13 @@ export async function buildResearchBrief(
   const text = response.content.find(b => b.type === 'text')
   if (!text || text.type !== 'text') throw new Error('No research brief generated')
 
-  await emit({ type: 'status', step: 'building_research_brief', detail: 'Orchestrator — Brief complete.' })
-  await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — Research Brief:\n${text.text}` })
-  return text.text
+  const costUSD = (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 1_000_000
+  await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — Brief complete. Cost: $${costUSD.toFixed(3)}` })
+  const CHUNK = 3000
+  for (let i = 0; i < text.text.length; i += CHUNK) {
+    await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — Research Brief (${Math.floor(i/CHUNK)+1}/${Math.ceil(text.text.length/CHUNK)}):\n${text.text.slice(i, i + CHUNK)}` })
+  }
+  return { brief: text.text, costUSD }
 }
 
 export async function buildDeckInstructions(
@@ -76,7 +80,7 @@ export async function buildDeckInstructions(
   report: string,
   citations: Citation[],
   emit: (e: ProgressEvent) => Promise<void>
-): Promise<string> {
+): Promise<{ instructions: string; costUSD: number }> {
   await emit({ type: 'status', step: 'orchestrating', detail: 'Orchestrator — Building 12-slide deck instructions...' })
 
   const citationBlock = citations.slice(0, 20)
@@ -96,7 +100,13 @@ export async function buildDeckInstructions(
   const text = response.content.find(b => b.type === 'text')
   if (!text || text.type !== 'text') throw new Error('No deck instructions generated')
 
-  await emit({ type: 'status', step: 'orchestrating', detail: 'Orchestrator — Deck instructions complete.' })
-  await emit({ type: 'status', step: 'orchestrating', detail: `Orchestrator — Deck Instructions:\n${text.text}` })
-  return text.text
+  const costUSD = (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 1_000_000
+  await emit({ type: 'status', step: 'orchestrating', detail: `Orchestrator — Deck instructions complete. Cost: $${costUSD.toFixed(3)}` })
+
+  // Emit in chunks to avoid SSE frame size limits
+  const CHUNK = 3000
+  for (let i = 0; i < text.text.length; i += CHUNK) {
+    await emit({ type: 'status', step: 'orchestrating', detail: `Orchestrator — Deck Instructions (${Math.floor(i/CHUNK)+1}/${Math.ceil(text.text.length/CHUNK)}):\n${text.text.slice(i, i + CHUNK)}` })
+  }
+  return { instructions: text.text, costUSD }
 }

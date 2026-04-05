@@ -90,7 +90,11 @@ export async function runDeepResearch(brief: string, emit: (e: ProgressEvent) =>
       await emit({ type: 'status', step: 'researching', detail: `Perplexity — Sources (${sourceCount}):\n${citationLines}` })
     }
 
-    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Research Report:\n${report}` })
+    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Research Report (${report.length} chars):` })
+    const CHUNK = 3000
+    for (let i = 0; i < report.length; i += CHUNK) {
+      await emit({ type: 'status', step: 'researching', detail: `Perplexity — Report (${Math.floor(i/CHUNK)+1}/${Math.ceil(report.length/CHUNK)}):\n${report.slice(i, i + CHUNK)}` })
+    }
 
     if (report.length < 2000 || sourceCount < 5) {
       if (attempt < 3) { throw new ThinResearchError(`Only ${sourceCount} sources`) }
