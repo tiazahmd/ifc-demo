@@ -76,24 +76,27 @@ export function ProgressTracker({ events, companyName, country, sector, onReset 
     return () => clearInterval(t)
   }, [isDone, isError])
 
+  const lastIndexRef = useRef(0)
   useEffect(() => {
-    const last = events[events.length - 1]
-    if (!last) return
-    const entry = toActivity(last)
-    if (!entry) return
+    const newEvents = events.slice(lastIndexRef.current)
+    lastIndexRef.current = events.length
+    const newEntries = newEvents.map(toActivity).filter((e): e is ActivityEntry => e !== null)
+    if (!newEntries.length) return
 
-    setActivity(a => {
-      // If this is a polling update, replace the last polling entry instead of appending
-      if (entry.message.startsWith('Researching...')) {
-        const lastIdx = [...a].reverse().findIndex(e => e.message.startsWith('Researching...') || e.message.startsWith('Research job submitted'))
-        if (lastIdx !== -1) {
-          const idx = a.length - 1 - lastIdx
-          const updated = [...a]
-          updated[idx] = entry
-          return updated
+    setActivity((prev: ActivityEntry[]) => {
+      let updated = [...prev]
+      for (const entry of newEntries) {
+        // If this is a polling update, replace the last polling entry instead of appending
+        if (entry.message.startsWith('Researching...')) {
+          const lastIdx = [...updated].reverse().findIndex(e => e.message.startsWith('Researching...') || e.message.startsWith('Research job submitted'))
+          if (lastIdx !== -1) {
+            updated[updated.length - 1 - lastIdx] = entry
+            continue
+          }
         }
+        updated = [...updated, entry]
       }
-      return [...a, entry]
+      return updated
     })
   }, [events])
 

@@ -55,7 +55,7 @@ export async function buildResearchBrief(
 
   await emit({ type: 'status', step: 'building_research_brief', detail: 'Orchestrator — Analysing inputs. Building Perplexity research brief...' })
 
-  const response = await client.messages.create({
+  const stream = client.messages.stream({
     model: 'claude-sonnet-4-6',
     max_tokens: MAX_TOKENS_PHASE1,
     thinking: THINKING,
@@ -63,15 +63,24 @@ export async function buildResearchBrief(
     messages: [{ role: 'user', content: userMsg }],
   })
 
+  let buffer = ''
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      buffer += event.delta.text
+      if (buffer.length >= 200) {
+        await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — ${buffer}` })
+        buffer = ''
+      }
+    }
+  }
+  if (buffer) await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — ${buffer}` })
+
+  const response = await stream.finalMessage()
   const text = response.content.find(b => b.type === 'text')
   if (!text || text.type !== 'text') throw new Error('No research brief generated')
 
   const costUSD = (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 1_000_000
   await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — Brief complete. Cost: $${costUSD.toFixed(3)}` })
-  const CHUNK = 3000
-  for (let i = 0; i < text.text.length; i += CHUNK) {
-    await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — Research Brief (${Math.floor(i/CHUNK)+1}/${Math.ceil(text.text.length/CHUNK)}):\n${text.text.slice(i, i + CHUNK)}` })
-  }
   return { brief: text.text, costUSD }
 }
 
@@ -89,7 +98,7 @@ export async function buildDeckInstructions(
 
   const userMsg = `Company: ${input.companyName} | Country: ${input.country} | Sector: ${input.sector}\n\n--- Research Report ---\n${report}\n\n--- Citations ---\n${citationBlock}`
 
-  const response = await client.messages.create({
+  const stream = client.messages.stream({
     model: 'claude-sonnet-4-6',
     max_tokens: MAX_TOKENS_PHASE2,
     thinking: THINKING,
@@ -97,16 +106,23 @@ export async function buildDeckInstructions(
     messages: [{ role: 'user', content: userMsg }],
   })
 
+  let buffer = ''
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      buffer += event.delta.text
+      if (buffer.length >= 200) {
+        await emit({ type: 'status', step: 'orchestrating', detail: `Orchestrator — ${buffer}` })
+        buffer = ''
+      }
+    }
+  }
+  if (buffer) await emit({ type: 'status', step: 'orchestrating', detail: `Orchestrator — ${buffer}` })
+
+  const response = await stream.finalMessage()
   const text = response.content.find(b => b.type === 'text')
   if (!text || text.type !== 'text') throw new Error('No deck instructions generated')
 
   const costUSD = (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 1_000_000
   await emit({ type: 'status', step: 'orchestrating', detail: `Orchestrator — Deck instructions complete. Cost: $${costUSD.toFixed(3)}` })
-
-  // Emit in chunks to avoid SSE frame size limits
-  const CHUNK = 3000
-  for (let i = 0; i < text.text.length; i += CHUNK) {
-    await emit({ type: 'status', step: 'orchestrating', detail: `Orchestrator — Deck Instructions (${Math.floor(i/CHUNK)+1}/${Math.ceil(text.text.length/CHUNK)}):\n${text.text.slice(i, i + CHUNK)}` })
-  }
   return { instructions: text.text, costUSD }
 }

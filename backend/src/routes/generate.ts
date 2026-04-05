@@ -57,7 +57,6 @@ generateRoute.post('/', async (c) => {
       await emit({ type: 'status', step: 'orchestrating' })
       const { instructions: slideInstructions, costUSD: deckCost } = await buildDeckInstructions(input, report, citations, emit)
       totalCost += deckCost
-      await emit({ type: 'status', step: 'orchestrating', costUSD: totalCost })
 
       // Generate deck
       await emit({ type: 'status', step: 'generating_deck' })
