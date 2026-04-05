@@ -6,6 +6,7 @@ import type { Citation, ProgressEvent } from '../types.js'
 const BASE = 'https://api.perplexity.ai'
 
 interface PerplexityResponse {
+  model?: string
   choices: Array<{ message: { content: string }; finish_reason: string }>
   citations?: string[]
   search_results?: Array<{ title: string; url: string; snippet?: string; source?: string }>
@@ -71,13 +72,15 @@ export async function runDeepResearch(brief: string, emit: (e: ProgressEvent) =>
     const data = await res.json() as PerplexityResponse
 
     const report = data.choices?.[0]?.message?.content ?? ''
-    const sourceCount = data.search_results?.length ?? 0
+    // search_results has full objects; citations is flat URL array — check both
+    const sourceCount = (data.search_results?.length ?? 0) || (data.citations?.length ?? 0)
     const totalCostNum = data.usage?.cost?.total_cost ?? 0
     const tokens = data.usage?.completion_tokens ?? 0
+    const model = (data as Record<string, unknown>).model as string ?? 'unknown'
 
     await emit({
       type: 'status', step: 'researching',
-      detail: `Perplexity — COMPLETED. ${sourceCount} sources. ${tokens} tokens. Cost: $${totalCostNum.toFixed(2)}`
+      detail: `Perplexity — COMPLETED. Model: ${model}. ${sourceCount} sources. ${tokens} tokens. Cost: $${totalCostNum.toFixed(2)}`
     })
 
     if (data.search_results?.length) {
@@ -94,11 +97,10 @@ export async function runDeepResearch(brief: string, emit: (e: ProgressEvent) =>
       throw new Error(`Research too thin after 3 attempts`)
     }
 
-    const citations: Citation[] = (data.search_results ?? []).map(s => ({
-      url: s.url,
-      title: s.title,
-      snippet: s.snippet,
-    }))
+    // Use search_results if available (has title/snippet), fall back to citations (URL strings)
+    const citations: Citation[] = data.search_results?.length
+      ? data.search_results.map(s => ({ url: s.url, title: s.title, snippet: s.snippet }))
+      : (data.citations ?? []).map(url => ({ url }))
 
     return { report, citations, sourceCount, costUSD: totalCostNum }
   }
