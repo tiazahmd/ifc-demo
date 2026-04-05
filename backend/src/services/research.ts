@@ -76,7 +76,7 @@ export async function runDeepResearch(brief: string, emit: (e: ProgressEvent) =>
     const sourceCount = (data.search_results?.length ?? 0) || (data.citations?.length ?? 0)
     const totalCostNum = data.usage?.cost?.total_cost ?? 0
     const tokens = data.usage?.completion_tokens ?? 0
-    const model = (data as Record<string, unknown>).model as string ?? 'unknown'
+    const model = data.model ?? 'unknown'
 
     await emit({
       type: 'status', step: 'researching',
