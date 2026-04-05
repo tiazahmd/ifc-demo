@@ -28,7 +28,7 @@ function stepIndex(step: string): number {
   const map: Record<string, number> = {
     inputs_received: 0, building_research_brief: 0,
     research_brief_ready: 1,
-    researching: 2, retry: 2, research_complete: 2,
+    researching: 2, retry: 2, research_complete: 2, evaluating_research: 2,
     orchestrating: 3,
     generating_deck: 4, done: 4,
   }
