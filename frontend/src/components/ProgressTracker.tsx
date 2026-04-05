@@ -47,11 +47,11 @@ function toActivity(event: ProgressEvent): ActivityEntry | null {
 }
 
 const serviceColor: Record<string, string> = {
-  orchestrator: 'text-sky-400',
-  perplexity: 'text-indigo-400',
-  gamma: 'text-purple-400',
-  warn: 'text-amber-400',
-  error: 'text-red-400',
+  orchestrator: 'text-blue-600',
+  perplexity: 'text-indigo-600',
+  gamma: 'text-purple-600',
+  warn: 'text-amber-600',
+  error: 'text-red-600',
 }
 
 export function ProgressTracker({ events, companyName, country, sector, onReset }: Props) {
@@ -205,32 +205,32 @@ export function ProgressTracker({ events, companyName, country, sector, onReset 
           </div>
 
           {/* Right: Live Activity */}
-          <div className="bg-activity rounded-lg flex flex-col overflow-hidden" style={{ height: '70vh' }}>
-            <div className="px-4 py-2.5 border-b border-white/5 flex items-center justify-between">
+          <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden" style={{ height: '70vh' }}>
+            <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between bg-gray-50 rounded-t-lg">
               <div className="flex items-center gap-2">
                 <div className="flex gap-1.5">
-                  <div className="w-3 h-3 rounded-full bg-red-500/60" />
-                  <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
-                  <div className="w-3 h-3 rounded-full bg-green-500/60" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
                 </div>
-                <p className="text-xs text-gray-500 font-mono ml-2">live-activity</p>
+                <p className="text-xs text-gray-400 font-mono ml-2">live-activity</p>
               </div>
               {totalCost > 0 && (
-                <p className="text-xs font-mono text-gray-600">${totalCost.toFixed(2)}</p>
+                <p className="text-xs font-mono text-gray-400">${totalCost.toFixed(2)}</p>
               )}
             </div>
-            <div ref={activityRef} className="flex-1 overflow-y-auto p-4 space-y-2.5 font-mono text-xs scrollbar-thin">
+            <div ref={activityRef} className="flex-1 overflow-y-auto p-4 space-y-2.5 font-mono text-xs scrollbar-thin bg-white">
               {activity.map((entry, i) => (
                 <div key={i} className="flex gap-3 leading-relaxed">
-                  <span className="text-gray-700 flex-shrink-0 select-none">{entry.time}</span>
+                  <span className="text-gray-300 flex-shrink-0 select-none">{entry.time}</span>
                   <span className={`flex-shrink-0 font-semibold ${serviceColor[entry.type]}`}>{entry.service}</span>
-                  <span className="text-gray-400 whitespace-pre-wrap break-words min-w-0">{entry.message}</span>
+                  <span className="text-gray-600 whitespace-pre-wrap break-words min-w-0">{entry.message}</span>
                 </div>
               ))}
               {!isDone && !isError && (
                 <div className="flex gap-3">
-                  <span className="text-gray-700 select-none">{new Date().toTimeString().slice(0, 8)}</span>
-                  <span className="text-gray-600 cursor-blink">▌</span>
+                  <span className="text-gray-300 select-none">{new Date().toTimeString().slice(0, 8)}</span>
+                  <span className="text-gray-300 cursor-blink">▌</span>
                 </div>
               )}
             </div>
