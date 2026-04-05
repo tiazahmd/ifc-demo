@@ -5,7 +5,7 @@ import { attemptResearch } from './research.js'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-const MODEL = 'claude-sonnet-4-6-20260218'
+const MODEL = 'claude-sonnet-4-6'
 const THINKING = { type: 'enabled' as const, budget_tokens: 10000 }
 const MAX_TOKENS = 32000  // well above thinking budget; supports long deck output
 
