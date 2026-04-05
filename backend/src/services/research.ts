@@ -64,12 +64,12 @@ export async function runDeepResearch(brief: string, emit: (e: ProgressEvent) =>
 
     if (!res.ok) {
       const errBody = await res.text()
-      await emit({ type: 'status', step: 'researching', detail: `Perplexity — HTTP ${res.status}: ${errBody.slice(0, 200)}` })
-      if (attempt < 3) continue
-      throw new Error(`Perplexity failed: ${res.status}`)
+      throw new Error(`Perplexity HTTP ${res.status}: ${errBody.slice(0, 300)}`)
     }
 
-    const data = await res.json() as PerplexityResponse
+    const rawText = await res.text()
+    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Raw response (${rawText.length} chars): ${rawText.slice(0, 200)}` })
+    const data = JSON.parse(rawText) as PerplexityResponse
 
     const report = data.choices?.[0]?.message?.content ?? ''
     // search_results has full objects; citations is flat URL array — check both
@@ -96,8 +96,8 @@ export async function runDeepResearch(brief: string, emit: (e: ProgressEvent) =>
       await emit({ type: 'status', step: 'researching', detail: `Perplexity — Report (${Math.floor(i/CHUNK)+1}/${Math.ceil(report.length/CHUNK)}):\n${report.slice(i, i + CHUNK)}` })
     }
 
-    if (report.length < 2000 || sourceCount < 5) {
-      if (attempt < 3) { throw new ThinResearchError(`Only ${sourceCount} sources`) }
+    if (report.length < 2000) {
+      if (attempt < 3) { throw new ThinResearchError(`Report too short: ${report.length} chars`) }
       throw new Error(`Research too thin after 3 attempts`)
     }
 
