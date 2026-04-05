@@ -43,18 +43,21 @@ generateRoute.post('/', async (c) => {
 
       // Phase 1: Build Perplexity research brief
       await emit({ type: 'status', step: 'building_research_brief' })
-      const brief = await buildResearchBrief(input, fileContents, emit)
-      await emit({ type: 'status', step: 'research_brief_ready' })
+      const { brief, costUSD: briefCost } = await buildResearchBrief(input, fileContents, emit)
+      totalCost += briefCost
+      await emit({ type: 'status', step: 'research_brief_ready', costUSD: totalCost })
 
       // Research with retry
       await emit({ type: 'status', step: 'researching', detail: 'Running deep research (2-5 min)...' })
-      const { report, citations, sourceCount, costUSD } = await runDeepResearch(brief, emit)
-      totalCost += costUSD
+      const { report, citations, sourceCount, costUSD: researchCost } = await runDeepResearch(brief, emit)
+      totalCost += researchCost
       await emit({ type: 'status', step: 'research_complete', detail: `${sourceCount} sources found`, costUSD: totalCost })
 
       // Phase 2: Build deck instructions
       await emit({ type: 'status', step: 'orchestrating' })
-      const slideInstructions = await buildDeckInstructions(input, report, citations, emit)
+      const { instructions: slideInstructions, costUSD: deckCost } = await buildDeckInstructions(input, report, citations, emit)
+      totalCost += deckCost
+      await emit({ type: 'status', step: 'orchestrating', costUSD: totalCost })
 
       // Generate deck
       await emit({ type: 'status', step: 'generating_deck' })
