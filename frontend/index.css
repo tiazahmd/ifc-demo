@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --navy: #021F43;
+  --sky: #00B0F0;
+  --activity-bg: #0F172A;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: #FAFAFA;
+  color: #111827;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.cursor-blink { animation: blink 1s step-end infinite; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner { animation: spin 0.8s linear infinite; }
+
+/* Sleek scrollbar for activity pane */
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 2px; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
