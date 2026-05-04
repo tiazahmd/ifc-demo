@@ -1,4 +1,4 @@
-export type EngagementType = "buy-side-advisory"
+export type EngagementType = "sell-side-advisory" | "buy-side-advisory"
 
 export interface UserInput {
   companyName: string
@@ -17,8 +17,9 @@ export interface Citation {
 }
 
 export interface ProgressEvent {
-  type: "status" | "complete" | "error"
+  type: "status" | "complete" | "error" | "ping"
   step: string
   detail?: string
   downloadUrl?: string
+  costUSD?: number
 }
