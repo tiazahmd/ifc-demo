@@ -146,25 +146,39 @@ export async function runOrchestration(
   totalCost += briefCost
   await emit({ type: 'status', step: 'research_brief_ready', costUSD: totalCost })
 
-  // ── Research loop (up to 3 attempts) ───────────────────────────────────────
+  // ── Research loop (up to 5 attempts) ───────────────────────────────────────
+  // Fast-retry: if Perplexity returns 0 sources (known intermittent bug),
+  // retry immediately without burning a Claude evaluation turn.
+  const MAX_ATTEMPTS = 5
   let currentBrief = brief
+  let fastRetries = 0
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (attempt > 1) {
-      await emit({ type: 'status', step: 'retry', detail: `⚠ Retry ${attempt - 1}/3 — Rewriting research brief with new strategy...` })
+      await emit({ type: 'status', step: 'retry', detail: `⚠ Retry ${attempt - 1}/${MAX_ATTEMPTS} — ${fastRetries > 0 ? 'Fast-retry (zero sources detected)' : 'Rewriting research brief with new strategy'}...` })
     }
 
-    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Starting deep research (attempt ${attempt}/3). Takes 2-5 minutes...` })
+    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Starting deep research (attempt ${attempt}/${MAX_ATTEMPTS}). Takes 2-5 minutes...` })
 
     const { report, citations, sourceCount, costUSD: researchCost } = await attemptResearch(currentBrief, emit)
     totalCost += researchCost
     await emit({ type: 'status', step: 'research_complete', detail: `${sourceCount} sources found`, costUSD: totalCost })
 
+    // ── Fast-retry: skip Claude evaluation if zero sources (known Perplexity bug) ──
+    if (sourceCount === 0 && attempt < MAX_ATTEMPTS) {
+      fastRetries++
+      await emit({ type: 'status', step: 'researching', detail:
+        `⚠ Zero sources returned — known Perplexity intermittent bug. Fast-retrying without Claude evaluation (saves ~$0.05). Attempt ${attempt}/${MAX_ATTEMPTS}.`
+      })
+      // Don't add to messages — no point evaluating empty research
+      continue
+    }
+
     // Inject Perplexity result into the conversation thread
     messages.push({ role: 'user', content: buildEvaluationPrompt(report, citations, sourceCount, attempt) })
 
     // ── Turn 2: Evaluate ──────────────────────────────────────────────────────
-    await emit({ type: 'status', step: 'evaluating_research', detail: `Orchestrator — Evaluating research quality (attempt ${attempt}/3)...` })
+    await emit({ type: 'status', step: 'evaluating_research', detail: `Orchestrator — Evaluating research quality (attempt ${attempt}/${MAX_ATTEMPTS})...` })
 
     const { text: evalText, costUSD: evalCost } = await streamTurn(messages, 'evaluating_research', emit)
     messages.push({ role: 'assistant', content: evalText })
@@ -180,8 +194,8 @@ export async function runOrchestration(
     }
 
     // RETRY — use Claude's rewritten brief for the next Perplexity call
-    if (attempt === 3) {
-      throw new Error(`Research failed after 3 attempts. ${decision.reason}`)
+    if (attempt === MAX_ATTEMPTS) {
+      throw new Error(`Research failed after ${MAX_ATTEMPTS} attempts. ${decision.reason}`)
     }
     currentBrief = decision.newBrief
   }
