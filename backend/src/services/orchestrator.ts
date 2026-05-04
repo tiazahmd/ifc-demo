@@ -239,6 +239,8 @@ export async function runOrchestration(
       throw new Error(`Research failed after ${MAX_ATTEMPTS} attempts. ${decision.reason}`)
     }
     currentBrief = decision.newBrief
+    // Emit the rewritten brief so the frontend can capture it as a downloadable artifact
+    await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — [Rewritten Brief — Attempt ${attempt + 1}]\n\n${decision.newBrief}` })
   }
 
   // ── Turn 3: Deck instructions ───────────────────────────────────────────────
