@@ -25,6 +25,7 @@ export default function App() {
   const perplexityBuf = useRef('')
   const orchestratingBuf = useRef('')
   const lastStepRef = useRef('')
+  const perplexityAttemptRef = useRef(0)
 
   const checkServer = async () => {
     setServerStatus('checking')
@@ -43,7 +44,12 @@ export default function App() {
     // Research brief: step='building_research_brief', detail starts with 'Orchestrator —'
     if (event.step === 'building_research_brief' && d.startsWith('Orchestrator —')) {
       const text = d.replace('Orchestrator — ', '')
-      researchBriefBuf.current += text + '\n'
+      // If this is a rewritten brief (retry), reset buffer to capture only the latest version
+      if (text.startsWith('[Rewritten Brief')) {
+        researchBriefBuf.current = text + '\n'
+      } else {
+        researchBriefBuf.current += text + '\n'
+      }
     }
 
     // Finalize research brief when step transitions away
@@ -61,18 +67,27 @@ export default function App() {
       perplexityBuf.current += text + '\n'
     }
 
-    // Clear perplexity buffer on retry so we only keep the successful attempt
-    if (event.step === 'retry') {
+    // On retry: finalize current buffer as a numbered artifact, then reset for next attempt
+    if (event.step === 'retry' && perplexityBuf.current) {
+      const content = perplexityBuf.current
+      perplexityAttemptRef.current++
+      const n = perplexityAttemptRef.current
+      setArtifacts(a => [...a, { name: `Perplexity Research (Attempt ${n})`, filename: `perplexity-research-${n}.md`, content, ready: true }])
       perplexityBuf.current = ''
     }
 
-    // Finalize perplexity when step transitions from researching
+    // Finalize perplexity when step transitions from researching (final successful attempt)
     if (lastStepRef.current === 'researching' && event.step !== 'researching' && event.step !== 'retry' && perplexityBuf.current) {
-      setArtifacts(a => {
-        const existing = a.find(x => x.filename === 'perplexity-research.md')
-        if (existing) return a.map(x => x.filename === 'perplexity-research.md' ? { ...x, content: perplexityBuf.current, ready: true } : x)
-        return [...a, { name: 'Perplexity Research', filename: 'perplexity-research.md', content: perplexityBuf.current, ready: true }]
-      })
+      const content = perplexityBuf.current
+      perplexityAttemptRef.current++
+      const n = perplexityAttemptRef.current
+      const isFinal = perplexityAttemptRef.current > 1
+      setArtifacts(a => [...a, {
+        name: isFinal ? `Perplexity Research (Attempt ${n} — Final)` : 'Perplexity Research',
+        filename: isFinal ? `perplexity-research-${n}.md` : 'perplexity-research.md',
+        content,
+        ready: true,
+      }])
     }
 
     // Deck instructions: step='orchestrating', detail starts with 'Orchestrator —'
@@ -105,6 +120,7 @@ export default function App() {
     perplexityBuf.current = ''
     orchestratingBuf.current = ''
     lastStepRef.current = ''
+    perplexityAttemptRef.current = 0
     setState('generating')
 
     const res = await fetch(`${import.meta.env.VITE_BACKEND_URL ?? ''}/generate`, { method: 'POST', body: formData })
@@ -137,7 +153,14 @@ export default function App() {
       setArtifacts(a => a.find(x => x.filename === 'research-brief.md') ? a : [...a, { name: 'Research Brief', filename: 'research-brief.md', content: researchBriefBuf.current, ready: true }])
     }
     if (perplexityBuf.current) {
-      setArtifacts(a => a.find(x => x.filename === 'perplexity-research.md') ? a : [...a, { name: 'Perplexity Research', filename: 'perplexity-research.md', content: perplexityBuf.current, ready: true }])
+      const n = perplexityAttemptRef.current + 1
+      setArtifacts(a => {
+        const fname = n > 1 ? `perplexity-research-${n}.md` : 'perplexity-research.md'
+        return a.find(x => x.filename === fname) ? a : [...a, {
+          name: n > 1 ? `Perplexity Research (Attempt ${n} — Final)` : 'Perplexity Research',
+          filename: fname, content: perplexityBuf.current, ready: true,
+        }]
+      })
     }
     if (orchestratingBuf.current) {
       setArtifacts(a => a.find(x => x.filename === 'deck-instructions.md') ? a : [...a, { name: 'Deck Instructions', filename: 'deck-instructions.md', content: orchestratingBuf.current, ready: true }])
