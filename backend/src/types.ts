@@ -1,4 +1,4 @@
-export type EngagementType = "buy-side-advisory"
+export type EngagementType = "sell-side-advisory" | "buy-side-advisory"
 
 export interface UserInput {
   companyName: string
