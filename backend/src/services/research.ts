@@ -28,6 +28,7 @@ interface ResearchResult {
   report: string
   citations: Citation[]
   sourceCount: number
+  numSearchQueries: number
   costUSD: number
 }
 
@@ -120,5 +121,5 @@ export async function attemptResearch(
     ? data.search_results.map(s => ({ url: s.url, title: s.title, snippet: s.snippet }))
     : (data.citations ?? []).map(url => ({ url }))
 
-  return { report, citations, sourceCount, costUSD: totalCostNum }
+  return { report, citations, sourceCount, numSearchQueries: data.usage?.num_search_queries ?? 0, costUSD: totalCostNum }
 }

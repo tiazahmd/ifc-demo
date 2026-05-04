@@ -21,10 +21,18 @@ When given company details and any uploaded documents, produce a focused, specif
 Prioritise sources: company IR pages, IFC.org, Bloomberg, Reuters, World Bank. Be specific and direct.
 
 **Phase 2 — Research Evaluation**
-When given a Perplexity research result, evaluate whether it constitutes sufficient research to produce a credible IFC pitch deck. Consider:
-- Are there real cited sources? Zero sources almost always means a refusal or capability-limitation response.
-- Is this substantive research or a disclaimer / knowledge-cutoff notice?
-- Is there enough data to populate financial, sector, macro, and IFC slides?
+When given a Perplexity research result, evaluate whether it constitutes sufficient research to produce a credible IFC pitch deck.
+
+IMPORTANT — Source metadata context:
+Perplexity's sonar-deep-research has a known intermittent bug where web searches execute successfully but the citations/search_results arrays are returned empty. The pipeline pre-filters these failures and auto-retries, so you should rarely see zero-source results. However, if you do, or if the source count seems low relative to the content depth, evaluate the CONTENT INDEPENDENTLY of the source count. Specifically:
+
+1. Does the report contain specific, verifiable data points (named companies, dollar figures, dates, percentages, named sources inline)?
+2. Does it contain inline citation markers like [1], [Source Name, Year], or named references?
+3. Does it read like genuine research (specific, falsifiable claims) or like LLM padding (hedged estimates, "approximately," "believed to be," "would require verification")?
+4. Is there enough concrete data to populate financial, sector, macro, and IFC slides?
+
+A report with 0 formal source metadata but rich inline citations and specific data points is USABLE — flag the metadata gap but PROCEED.
+A report with 50 sources but only hedged generalities is NOT usable — RETRY.
 
 Write your assessment, then end your response with exactly one fenced JSON block (no other fenced JSON elsewhere in your response):
 
@@ -72,19 +80,25 @@ function buildEvaluationPrompt(
   report: string,
   citations: Citation[],
   sourceCount: number,
-  attempt: number
+  numSearchQueries: number,
+  attempt: number,
+  maxAttempts: number
 ): string {
   const citationBlock = citations.slice(0, 30)
     .map((c, i) => `[${i + 1}] ${c.title ?? 'Source'} — ${c.url}`)
     .join('\n')
 
-  return `Perplexity deep research returned the following (attempt ${attempt}/3). ${sourceCount} source(s) found.
+  const metadataNote = sourceCount === 0 && numSearchQueries > 0
+    ? `\n⚠️ NOTE: Perplexity executed ${numSearchQueries} web searches but returned 0 source metadata (known intermittent platform bug). Evaluate the CONTENT on its own merits — look for inline citations, specific data points, and verifiable claims.\n`
+    : ''
 
+  return `Perplexity deep research returned the following (attempt ${attempt}/${maxAttempts}). ${sourceCount} source(s) found. ${numSearchQueries} web searches executed.
+${metadataNote}
 --- RESEARCH REPORT ---
 ${report}
 
 --- SOURCES ---
-${citationBlock || 'No sources returned.'}
+${citationBlock || 'No source metadata returned (see note above).'}
 ---
 
 Evaluate this result and end your response with the required JSON decision block.`
@@ -160,9 +174,9 @@ export async function runOrchestration(
 
     await emit({ type: 'status', step: 'researching', detail: `Perplexity — Starting deep research (attempt ${attempt}/${MAX_ATTEMPTS}). Takes 2-5 minutes...` })
 
-    const { report, citations, sourceCount, costUSD: researchCost } = await attemptResearch(currentBrief, emit)
+    const { report, citations, sourceCount, numSearchQueries, costUSD: researchCost } = await attemptResearch(currentBrief, emit)
     totalCost += researchCost
-    await emit({ type: 'status', step: 'research_complete', detail: `${sourceCount} sources found`, costUSD: totalCost })
+    await emit({ type: 'status', step: 'research_complete', detail: `${sourceCount} sources found (${numSearchQueries} searches executed)`, costUSD: totalCost })
 
     // ── Fast-retry: skip Claude evaluation if zero sources (known Perplexity bug) ──
     if (sourceCount === 0 && attempt < MAX_ATTEMPTS) {
@@ -175,7 +189,7 @@ export async function runOrchestration(
     }
 
     // Inject Perplexity result into the conversation thread
-    messages.push({ role: 'user', content: buildEvaluationPrompt(report, citations, sourceCount, attempt) })
+    messages.push({ role: 'user', content: buildEvaluationPrompt(report, citations, sourceCount, numSearchQueries, attempt, MAX_ATTEMPTS) })
 
     // ── Turn 2: Evaluate ──────────────────────────────────────────────────────
     await emit({ type: 'status', step: 'evaluating_research', detail: `Orchestrator — Evaluating research quality (attempt ${attempt}/${MAX_ATTEMPTS})...` })
