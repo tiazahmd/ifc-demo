@@ -20,7 +20,6 @@ export function InputForm({ onSubmit, serverStatus, onCheckServer }: Props) {
     e.preventDefault()
     const fd = new FormData(e.currentTarget)
     fd.set('additionalLinks', JSON.stringify(links))
-    fd.set('engagementType', 'buy-side-advisory')
     files.forEach(f => fd.append('files', f))
     onSubmit(fd)
   }
@@ -36,8 +35,8 @@ export function InputForm({ onSubmit, serverStatus, onCheckServer }: Props) {
             </div>
             <span className="text-sm font-medium text-gray-500">Pitch Deck Engine</span>
           </div>
-          <h1 className="text-3xl font-semibold text-navy mb-2">Generate a Discussion Document</h1>
-          <p className="text-gray-500">Powered by AI research and IFC expertise</p>
+          <h1 className="text-3xl font-semibold text-navy mb-2">Generate a Pitch Deck</h1>
+          <p className="text-gray-500">AI-powered research and deck generation for IFC Advisory Services</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -58,9 +57,16 @@ export function InputForm({ onSubmit, serverStatus, onCheckServer }: Props) {
                 <input name="sector" required className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky focus:border-transparent" placeholder="e.g. Cement" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Company Website</label>
-                <input name="companyWebsite" type="url" className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky focus:border-transparent" placeholder="https://..." />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Engagement Type <span className="text-red-500">*</span></label>
+                <select name="engagementType" defaultValue="sell-side-advisory" className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky focus:border-transparent bg-white">
+                  <option value="sell-side-advisory">Sell-Side Advisory</option>
+                  <option value="buy-side-advisory">Buy-Side Advisory</option>
+                </select>
               </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Company Website</label>
+              <input name="companyWebsite" type="url" className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky focus:border-transparent" placeholder="https://..." />
             </div>
           </div>
 
