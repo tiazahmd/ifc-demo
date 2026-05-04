@@ -1,7 +1,14 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { InputForm } from './components/InputForm'
 import { ProgressTracker } from './components/ProgressTracker'
 import type { ProgressEvent } from '../../shared/types'
+
+export interface Artifact {
+  name: string
+  filename: string
+  content: string
+  ready: boolean
+}
 
 type AppState = 'form' | 'generating'
 type ServerStatus = 'unknown' | 'checking' | 'ready' | 'cold'
@@ -11,6 +18,13 @@ export default function App() {
   const [events, setEvents] = useState<ProgressEvent[]>([])
   const [meta, setMeta] = useState({ companyName: '', country: '', sector: '' })
   const [serverStatus, setServerStatus] = useState<ServerStatus>('unknown')
+  const [artifacts, setArtifacts] = useState<Artifact[]>([])
+
+  // Buffers for accumulating content across SSE chunks
+  const researchBriefBuf = useRef('')
+  const perplexityBuf = useRef('')
+  const orchestratingBuf = useRef('')
+  const lastStepRef = useRef('')
 
   const checkServer = async () => {
     setServerStatus('checking')
@@ -23,6 +37,62 @@ export default function App() {
     }
   }
 
+  const processArtifact = useCallback((event: ProgressEvent) => {
+    const d = event.detail ?? ''
+
+    // Research brief: step='building_research_brief', detail starts with 'Orchestrator —'
+    if (event.step === 'building_research_brief' && d.startsWith('Orchestrator —')) {
+      const text = d.replace('Orchestrator — ', '')
+      researchBriefBuf.current += text + '\n'
+    }
+
+    // Finalize research brief when step transitions away
+    if (lastStepRef.current === 'building_research_brief' && event.step !== 'building_research_brief' && researchBriefBuf.current) {
+      setArtifacts(a => {
+        const existing = a.find(x => x.filename === 'research-brief.md')
+        if (existing) return a.map(x => x.filename === 'research-brief.md' ? { ...x, content: researchBriefBuf.current, ready: true } : x)
+        return [...a, { name: 'Research Brief', filename: 'research-brief.md', content: researchBriefBuf.current, ready: true }]
+      })
+    }
+
+    // Perplexity report chunks: detail starts with 'Perplexity — Research Report' or 'Perplexity — Report'
+    if (d.startsWith('Perplexity — Research Report') || d.startsWith('Perplexity — Report')) {
+      const text = d.replace(/^Perplexity — (Research )?Report[^:]*:\s*/, '')
+      perplexityBuf.current += text + '\n'
+    }
+
+    // Clear perplexity buffer on retry so we only keep the successful attempt
+    if (event.step === 'retry') {
+      perplexityBuf.current = ''
+    }
+
+    // Finalize perplexity when step transitions from researching
+    if (lastStepRef.current === 'researching' && event.step !== 'researching' && event.step !== 'retry' && perplexityBuf.current) {
+      setArtifacts(a => {
+        const existing = a.find(x => x.filename === 'perplexity-research.md')
+        if (existing) return a.map(x => x.filename === 'perplexity-research.md' ? { ...x, content: perplexityBuf.current, ready: true } : x)
+        return [...a, { name: 'Perplexity Research', filename: 'perplexity-research.md', content: perplexityBuf.current, ready: true }]
+      })
+    }
+
+    // Deck instructions: step='orchestrating', detail starts with 'Orchestrator —'
+    if (event.step === 'orchestrating' && d.startsWith('Orchestrator —')) {
+      const text = d.replace('Orchestrator — ', '')
+      orchestratingBuf.current += text + '\n'
+    }
+
+    // Finalize orchestrating when step transitions away
+    if (lastStepRef.current === 'orchestrating' && event.step !== 'orchestrating' && orchestratingBuf.current) {
+      setArtifacts(a => {
+        const existing = a.find(x => x.filename === 'deck-instructions.md')
+        if (existing) return a.map(x => x.filename === 'deck-instructions.md' ? { ...x, content: orchestratingBuf.current, ready: true } : x)
+        return [...a, { name: 'Deck Instructions', filename: 'deck-instructions.md', content: orchestratingBuf.current, ready: true }]
+      })
+    }
+
+    lastStepRef.current = event.step
+  }, [])
+
   const handleSubmit = async (formData: FormData) => {
     setMeta({
       companyName: formData.get('companyName') as string,
@@ -30,6 +100,11 @@ export default function App() {
       sector: formData.get('sector') as string,
     })
     setEvents([])
+    setArtifacts([])
+    researchBriefBuf.current = ''
+    perplexityBuf.current = ''
+    orchestratingBuf.current = ''
+    lastStepRef.current = ''
     setState('generating')
 
     const res = await fetch(`${import.meta.env.VITE_BACKEND_URL ?? ''}/generate`, { method: 'POST', body: formData })
@@ -49,11 +124,23 @@ export default function App() {
         if (line.startsWith('data: ')) {
           try {
             const event: ProgressEvent = JSON.parse(line.slice(6))
-            if (event.type === 'ping') continue  // keepalive, ignore
+            if (event.type === 'ping') continue
+            processArtifact(event)
             setEvents(e => [...e, event])
           } catch { /* skip malformed */ }
         }
       }
+    }
+
+    // Finalize any remaining buffers on stream end
+    if (researchBriefBuf.current) {
+      setArtifacts(a => a.find(x => x.filename === 'research-brief.md') ? a : [...a, { name: 'Research Brief', filename: 'research-brief.md', content: researchBriefBuf.current, ready: true }])
+    }
+    if (perplexityBuf.current) {
+      setArtifacts(a => a.find(x => x.filename === 'perplexity-research.md') ? a : [...a, { name: 'Perplexity Research', filename: 'perplexity-research.md', content: perplexityBuf.current, ready: true }])
+    }
+    if (orchestratingBuf.current) {
+      setArtifacts(a => a.find(x => x.filename === 'deck-instructions.md') ? a : [...a, { name: 'Deck Instructions', filename: 'deck-instructions.md', content: orchestratingBuf.current, ready: true }])
     }
   }
 
@@ -64,6 +151,7 @@ export default function App() {
         companyName={meta.companyName}
         country={meta.country}
         sector={meta.sector}
-        onReset={() => { setState('form'); setEvents([]); setServerStatus('unknown') }}
+        artifacts={artifacts}
+        onReset={() => { setState('form'); setEvents([]); setServerStatus('unknown'); setArtifacts([]) }}
       />
 }

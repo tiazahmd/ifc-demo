@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import type { ProgressEvent } from '../../../shared/types'
+import type { Artifact } from '../App'
 
 interface ActivityEntry {
   time: string
@@ -13,6 +14,7 @@ interface Props {
   companyName: string
   country: string
   sector: string
+  artifacts: Artifact[]
   onReset: () => void
 }
 
@@ -47,18 +49,49 @@ function toActivity(event: ProgressEvent): ActivityEntry | null {
 }
 
 const serviceColor: Record<string, string> = {
-  orchestrator: 'text-blue-600',
-  perplexity: 'text-indigo-600',
-  gamma: 'text-purple-600',
-  warn: 'text-amber-600',
-  error: 'text-red-600',
+  orchestrator: 'text-sky',
+  perplexity: 'text-indigo-500',
+  gamma: 'text-purple-500',
+  warn: 'text-amber-500',
+  error: 'text-red-500',
 }
 
-export function ProgressTracker({ events, companyName, country, sector, onReset }: Props) {
+function downloadBlob(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export function ProgressTracker({ events, companyName, country, sector, artifacts, onReset }: Props) {
   const [activity, setActivity] = useState<ActivityEntry[]>([])
   const activityRef = useRef<HTMLDivElement>(null)
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(Date.now())
+  const [downloadsOpen, setDownloadsOpen] = useState(true)
+
+  // Scroll persistence
+  const isNearBottomRef = useRef(true)
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
+
+  const handleScroll = useCallback(() => {
+    const el = activityRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+    isNearBottomRef.current = nearBottom
+    setShowScrollBtn(!nearBottom)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    if (activityRef.current) {
+      activityRef.current.scrollTop = activityRef.current.scrollHeight
+      isNearBottomRef.current = true
+      setShowScrollBtn(false)
+    }
+  }, [])
 
   const latestEvent = events[events.length - 1]
   const isDone = latestEvent?.type === 'complete'
@@ -86,7 +119,6 @@ export function ProgressTracker({ events, companyName, country, sector, onReset 
     setActivity((prev: ActivityEntry[]) => {
       let updated = [...prev]
       for (const entry of newEntries) {
-        // If this is a polling update, replace the last polling entry instead of appending
         if (entry.message.startsWith('Researching...')) {
           const lastIdx = [...updated].reverse().findIndex(e => e.message.startsWith('Researching...') || e.message.startsWith('Research job submitted'))
           if (lastIdx !== -1) {
@@ -100,143 +132,197 @@ export function ProgressTracker({ events, companyName, country, sector, onReset 
     })
   }, [events])
 
+  // Auto-scroll only if near bottom
   useEffect(() => {
-    if (activityRef.current) activityRef.current.scrollTop = activityRef.current.scrollHeight
+    if (isNearBottomRef.current && activityRef.current) {
+      activityRef.current.scrollTop = activityRef.current.scrollHeight
+    }
   }, [activity])
 
   const completedSteps = isDone ? STEPS.length : currentStepIdx + 1
   const progress = Math.round((Math.max(0, completedSteps) / STEPS.length) * 100)
   const formatElapsed = (s: number) => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 
+  const readyArtifacts = artifacts.filter(a => a.ready)
+
   return (
     <div className="min-h-screen flex flex-col items-center py-12 px-4">
       <div className="w-full max-w-[1100px]">
         <div className="mb-8">
-          <div className="flex items-center gap-2 mb-6">
-            <div className="w-8 h-8 bg-navy rounded flex items-center justify-center">
-              <span className="text-white text-xs font-bold">IFC</span>
+          <div className="flex items-center gap-2.5 mb-6">
+            <div className="w-9 h-9 bg-navy rounded-md flex items-center justify-center shadow-soft">
+              <span className="text-white text-xs font-bold tracking-wide">IFC</span>
             </div>
-            <span className="text-sm font-medium text-gray-500">Pitch Deck Engine</span>
+            <span className="text-xs font-semibold text-fg-faint uppercase tracking-[0.2em]">Pitch Deck Engine</span>
           </div>
-          <h1 className="text-3xl font-semibold text-navy mb-1">
+          <h1 className="text-3xl font-semibold text-navy tracking-tight mb-1">
             {isDone ? 'Discussion Document Ready' : 'Generating Discussion Document'}
           </h1>
-          <p className="text-gray-500">{companyName} · {country} · {sector} · Buy-Side Advisory</p>
+          <p className="text-fg-muted text-sm">{companyName} · {country} · {sector}</p>
         </div>
 
         <div className="grid grid-cols-[2fr_3fr] gap-6 items-start">
-          {/* Left: Progress */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6 flex flex-col gap-6 sticky top-8">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Progress</p>
+          {/* Left: Progress + Downloads */}
+          <div className="space-y-4">
+            <div className="bg-elevated border border-border rounded-lg p-6 flex flex-col gap-6 sticky top-8 shadow-soft">
+              <p className="text-[11px] font-semibold text-fg-faint uppercase tracking-[0.2em]">Progress</p>
 
-            <div className="space-y-4">
-              {STEPS.map((step, i) => {
-                const done = isDone || i < currentStepIdx || (i === currentStepIdx && ['research_complete', 'done'].includes(latestEvent?.step))
-                const active = !isDone && i === currentStepIdx
-                const detail = [...events].reverse().find(e => stepIndex(e.step) === i)?.detail
+              <div className="space-y-4">
+                {STEPS.map((step, i) => {
+                  const done = isDone || i < currentStepIdx || (i === currentStepIdx && ['research_complete', 'done'].includes(latestEvent?.step))
+                  const active = !isDone && i === currentStepIdx
+                  const detail = [...events].reverse().find(e => stepIndex(e.step) === i)?.detail
 
-                return (
-                  <div key={step.key} className="flex items-start gap-3">
-                    <div className="mt-0.5 flex-shrink-0">
-                      {done ? (
-                        <span className="text-emerald-500 font-bold">✓</span>
-                      ) : active ? (
-                        <span className="inline-block w-4 h-4 border-2 border-sky border-t-transparent rounded-full spinner" />
-                      ) : (
-                        <span className="text-gray-300">○</span>
-                      )}
-                    </div>
-                    <div>
-                      <p className={`text-sm font-medium ${done ? 'text-gray-700' : active ? 'text-navy' : 'text-gray-400'}`}>
-                        {step.label}
-                        {i === 2 && liveSourceCount && (
-                          <span className="ml-2 text-xs text-gray-400 font-normal">· {liveSourceCount} sources</span>
+                  return (
+                    <div key={step.key} className="flex items-start gap-3">
+                      <div className="mt-0.5 flex-shrink-0">
+                        {done ? (
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-accent/10 text-accent text-xs font-bold">✓</span>
+                        ) : active ? (
+                          <span className="inline-block w-5 h-5 border-2 border-sky border-t-transparent rounded-full spinner" />
+                        ) : (
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-border text-fg-faint text-xs">○</span>
                         )}
-                      </p>
-                      {active && detail && !detail.includes('\n') && (
-                        <p className="text-xs text-gray-400 mt-0.5">{detail}</p>
-                      )}
+                      </div>
+                      <div>
+                        <p className={`text-sm font-medium ${done ? 'text-fg' : active ? 'text-navy' : 'text-fg-faint'}`}>
+                          {step.label}
+                          {i === 2 && liveSourceCount && (
+                            <span className="ml-2 text-xs text-fg-faint font-normal">· {liveSourceCount} sources</span>
+                          )}
+                        </p>
+                        {active && detail && !detail.includes('\n') && (
+                          <p className="text-xs text-fg-faint mt-0.5 truncate max-w-[200px]">{detail}</p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Progress bar + stats */}
-            <div>
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-sky rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
+                  )
+                })}
               </div>
-              <div className="flex justify-between mt-2">
-                <p className="text-xs text-gray-400">
-                  {isDone ? 'Complete' : isError ? 'Failed' : `Step ${Math.min(Math.max(currentStepIdx + 1, 0), STEPS.length)} of ${STEPS.length}`}
-                </p>
-                <div className="flex gap-3">
-                  {!isDone && !isError && elapsed > 0 && (
-                    <p className="text-xs text-gray-400 font-mono">{formatElapsed(elapsed)}</p>
-                  )}
-                  {totalCost > 0 && (
-                    <p className="text-xs text-gray-400 font-mono">${totalCost.toFixed(2)}</p>
-                  )}
+
+              {/* Progress bar */}
+              <div>
+                <div className="h-1.5 bg-surface rounded-full overflow-hidden">
+                  <div className="h-full bg-sky rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%` }} />
+                </div>
+                <div className="flex justify-between mt-2">
+                  <p className="text-xs text-fg-faint">
+                    {isDone ? 'Complete' : isError ? 'Failed' : `Step ${Math.min(Math.max(currentStepIdx + 1, 0), STEPS.length)} of ${STEPS.length}`}
+                  </p>
+                  <div className="flex gap-3">
+                    {!isDone && !isError && elapsed > 0 && (
+                      <p className="text-xs text-fg-faint font-mono">{formatElapsed(elapsed)}</p>
+                    )}
+                    {totalCost > 0 && (
+                      <p className="text-xs text-fg-faint font-mono">${totalCost.toFixed(2)}</p>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {isDone && latestEvent.downloadUrl && (
+                <div className="space-y-2">
+                  {(totalCost > 0 || elapsed > 0) && (
+                    <p className="text-xs text-center text-fg-faint">
+                      {totalCost > 0 ? `$${totalCost.toFixed(2)} · ` : ''}{formatElapsed(elapsed)}
+                    </p>
+                  )}
+                  <a href={latestEvent.downloadUrl} download className="block w-full bg-navy text-white text-center py-3 rounded-lg text-sm font-semibold uppercase tracking-wider hover:translate-y-[-1px] hover:shadow-raised transition-all">
+                    ↓ Download PPTX
+                  </a>
+                  <button onClick={onReset} className="block w-full text-center py-2.5 rounded-lg text-sm font-medium text-fg-muted border border-border hover:bg-surface transition-colors">
+                    Start Over
+                  </button>
+                </div>
+              )}
+              {isError && (
+                <div className="space-y-2">
+                  <p className="text-sm text-red-500">{latestEvent.detail}</p>
+                  <button onClick={onReset} className="w-full text-center py-2.5 rounded-lg text-sm font-medium text-fg-muted border border-border hover:bg-surface transition-colors">
+                    Try Again
+                  </button>
+                </div>
+              )}
             </div>
 
-            {isDone && latestEvent.downloadUrl && (
-              <div className="space-y-2">
-                {(totalCost > 0 || elapsed > 0) && (
-                  <p className="text-xs text-center text-gray-400">
-                    {totalCost > 0 ? `$${totalCost.toFixed(2)} · ` : ''}{formatElapsed(elapsed)}
+            {/* Downloads Panel */}
+            {readyArtifacts.length > 0 && (
+              <div className="bg-elevated border border-border rounded-lg shadow-soft overflow-hidden fade-in">
+                <button
+                  onClick={() => setDownloadsOpen(o => !o)}
+                  className="w-full px-6 py-4 flex items-center justify-between hover:bg-surface/50 transition-colors"
+                >
+                  <p className="text-[11px] font-semibold text-fg-faint uppercase tracking-[0.2em]">
+                    Downloads ({readyArtifacts.length})
                   </p>
+                  <span className={`text-fg-faint text-xs transition-transform ${downloadsOpen ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+                {downloadsOpen && (
+                  <div className="px-6 pb-4 space-y-2">
+                    {readyArtifacts.map((artifact) => (
+                      <button
+                        key={artifact.filename}
+                        onClick={() => downloadBlob(artifact.content, artifact.filename)}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-md border border-border hover:border-sky/30 hover:bg-sky/5 transition-colors text-left fade-in"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-fg">{artifact.name}</p>
+                          <p className="text-xs text-fg-faint">{artifact.filename}</p>
+                        </div>
+                        <span className="text-sky text-sm">↓</span>
+                      </button>
+                    ))}
+                  </div>
                 )}
-                <a href={latestEvent.downloadUrl} download className="block w-full bg-navy text-white text-center py-2.5 rounded-lg text-sm font-medium hover:bg-navy/90 transition-colors">
-                  ↓ Download PPTX
-                </a>
-                <button onClick={onReset} className="block w-full text-center py-2.5 rounded-lg text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-colors">
-                  Start Over
-                </button>
-              </div>
-            )}
-            {isError && (
-              <div className="space-y-2">
-                <p className="text-sm text-red-500">{latestEvent.detail}</p>
-                <button onClick={onReset} className="w-full text-center py-2.5 rounded-lg text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-colors">
-                  Try Again
-                </button>
               </div>
             )}
           </div>
 
           {/* Right: Live Activity */}
-          <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden" style={{ height: '70vh' }}>
-            <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between bg-gray-50 rounded-t-lg">
+          <div className="bg-elevated border border-border rounded-lg flex flex-col overflow-hidden shadow-soft relative" style={{ height: '70vh' }}>
+            <div className="px-4 py-2.5 border-b border-border flex items-center justify-between bg-surface/50">
               <div className="flex items-center gap-2">
                 <div className="flex gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-400/80" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-400/80" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
                 </div>
-                <p className="text-xs text-gray-400 font-mono ml-2">live-activity</p>
+                <p className="text-[11px] text-fg-faint font-mono ml-2 uppercase tracking-wider">live-activity</p>
               </div>
               {totalCost > 0 && (
-                <p className="text-xs font-mono text-gray-400">${totalCost.toFixed(2)}</p>
+                <p className="text-xs font-mono text-fg-faint">${totalCost.toFixed(2)}</p>
               )}
             </div>
-            <div ref={activityRef} className="flex-1 overflow-y-auto p-4 space-y-2.5 font-mono text-xs scrollbar-thin bg-white">
+            <div
+              ref={activityRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto p-4 space-y-2.5 font-mono text-xs scrollbar-thin"
+            >
               {activity.map((entry, i) => (
                 <div key={i} className="flex gap-3 leading-relaxed">
-                  <span className="text-gray-300 flex-shrink-0 select-none">{entry.time}</span>
+                  <span className="text-fg-faint/50 flex-shrink-0 select-none">{entry.time}</span>
                   <span className={`flex-shrink-0 font-semibold ${serviceColor[entry.type]}`}>{entry.service}</span>
-                  <span className="text-gray-600 whitespace-pre-wrap break-words min-w-0">{entry.message}</span>
+                  <span className="text-fg-muted whitespace-pre-wrap break-words min-w-0">{entry.message}</span>
                 </div>
               ))}
               {!isDone && !isError && (
                 <div className="flex gap-3">
-                  <span className="text-gray-300 select-none">{new Date().toTimeString().slice(0, 8)}</span>
-                  <span className="text-gray-300 cursor-blink">▌</span>
+                  <span className="text-fg-faint/50 select-none">{new Date().toTimeString().slice(0, 8)}</span>
+                  <span className="text-fg-faint cursor-blink">▌</span>
                 </div>
               )}
             </div>
+
+            {/* Scroll to bottom button */}
+            {showScrollBtn && (
+              <button
+                onClick={scrollToBottom}
+                className="absolute bottom-4 right-4 w-8 h-8 rounded-full bg-navy text-white flex items-center justify-center shadow-raised hover:translate-y-[-1px] transition-all text-xs"
+                aria-label="Scroll to bottom"
+              >
+                ↓
+              </button>
+            )}
           </div>
         </div>
       </div>
