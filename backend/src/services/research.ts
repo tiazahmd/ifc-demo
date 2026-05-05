@@ -39,19 +39,45 @@ export async function attemptResearch(
 ): Promise<ResearchResult> {
   const truncatedBrief = brief.length > 12000 ? brief.slice(0, 12000) + '\n\n[Brief truncated]' : brief
 
-  const res = await fetch(`${BASE}/v1/sonar`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'sonar-deep-research',
-      messages: [{ role: 'user', content: truncatedBrief }],
-    }),
-  })
+  const TIMEOUT_MS = 8 * 60 * 1000 // 8 minutes max for deep research
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
-  if (res.status === 429) throw new Error('Perplexity rate limit (429). Try again in a minute.')
+  // Emit progress pings every 30s so the frontend knows we're alive
+  let elapsed = 0
+  const ticker = setInterval(async () => {
+    elapsed += 30
+    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Deep research in progress... ${Math.floor(elapsed / 60)}m ${elapsed % 60}s elapsed` })
+  }, 30_000)
+
+  let res: Response
+  try {
+    res = await fetch(`${BASE}/v1/sonar`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'sonar-deep-research',
+        messages: [{ role: 'user', content: truncatedBrief }],
+      }),
+      signal: controller.signal,
+    })
+  } catch (err: unknown) {
+    clearTimeout(timeout)
+    clearInterval(ticker)
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Perplexity deep research timed out after ${TIMEOUT_MS / 60000} minutes. The query may be too complex or Perplexity may be experiencing delays.`)
+    }
+    throw err
+  } finally {
+    clearTimeout(timeout)
+    clearInterval(ticker)
+  }
+
+  if (res.status === 429) throw new Error('Perplexity rate limit hit (429). Too many requests — wait 60 seconds and retry.')
+  if (res.status === 401) throw new Error('Perplexity API key invalid or expired (401). Check PERPLEXITY_API_KEY on Render.')
   if (!res.ok) {
     const errBody = await res.text()
     throw new Error(`Perplexity HTTP ${res.status}: ${errBody.slice(0, 300)}`)
