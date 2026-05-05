@@ -7,7 +7,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const MODEL = 'claude-sonnet-4-6'
 const THINKING = { type: 'enabled' as const, budget_tokens: 10000 }
-const MAX_TOKENS = 32000  // well above thinking budget; supports long deck output
+const MAX_TOKENS = 64000  // needs headroom for thinking (10K) + long deck instructions (up to 50K)
 
 const SYSTEM = `You are an IFC advisory orchestrator managing a three-phase pipeline to produce a sell-side advisory pitch deck.
 
@@ -134,7 +134,88 @@ Evaluate this result and end your response with the required JSON decision block
 function parseDecision(text: string): Decision {
   const match = text.match(/```json\s*([\s\S]*?)\s*```/)
   if (!match) throw new Error('Orchestrator evaluation did not return a valid JSON decision block')
-  return JSON.parse(match[1]) as Decision
+
+  const raw = match[1].trim()
+
+  // Attempt 1: direct parse (works if Claude properly escaped everything)
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed.action || !['PROCEED', 'RETRY', 'ABORT'].includes(parsed.action)) {
+      throw new Error('Missing or invalid action field')
+    }
+    return parsed as Decision
+  } catch { /* fall through */ }
+
+  // Attempt 2: The most common failure is literal newlines inside string values.
+  // Strategy: find the JSON on a single logical line by collapsing only newlines
+  // that appear inside quoted strings. We do this by replacing newlines between
+  // the opening { and closing } with \\n, but being careful about the structure.
+  // Simpler approach: extract action first, then handle each case.
+  const actionMatch = raw.match(/"action"\s*:\s*"(PROCEED|RETRY|ABORT)"/)
+  if (!actionMatch) throw new Error('Could not find action in decision JSON. Raw start: ' + raw.slice(0, 300))
+
+  if (actionMatch[1] === 'PROCEED') return { action: 'PROCEED' }
+
+  if (actionMatch[1] === 'ABORT') {
+    // Extract message: everything between "message":" and the last "} or end
+    const msgStart = raw.indexOf('"message"')
+    if (msgStart === -1) return { action: 'ABORT', message: 'Research aborted (could not parse message)' }
+    const msgValStart = raw.indexOf(':', msgStart) + 1
+    const msgContent = extractJsonStringValue(raw, msgValStart)
+    return { action: 'ABORT', message: msgContent }
+  }
+
+  // RETRY: extract reason and newBrief
+  const reasonStart = raw.indexOf('"reason"')
+  const briefStart = raw.indexOf('"newBrief"')
+
+  let reason = 'Quality insufficient'
+  let newBrief = ''
+
+  if (reasonStart !== -1) {
+    const valStart = raw.indexOf(':', reasonStart) + 1
+    reason = extractJsonStringValue(raw, valStart)
+  }
+
+  if (briefStart !== -1) {
+    const valStart = raw.indexOf(':', briefStart) + 1
+    newBrief = extractJsonStringValue(raw, valStart)
+  }
+
+  return { action: 'RETRY', reason, newBrief }
+}
+
+/** Extract a JSON string value starting from a position (skips whitespace and opening quote) */
+function extractJsonStringValue(raw: string, startPos: number): string {
+  // Skip whitespace and find opening quote
+  let i = startPos
+  while (i < raw.length && (raw[i] === ' ' || raw[i] === '\t' || raw[i] === '\n' || raw[i] === '\r')) i++
+  if (raw[i] !== '"') return raw.slice(startPos, startPos + 200) // fallback
+
+  i++ // skip opening quote
+  let result = ''
+  while (i < raw.length) {
+    if (raw[i] === '\\' && i + 1 < raw.length) {
+      // Escaped character
+      const next = raw[i + 1]
+      if (next === 'n') { result += '\n'; i += 2 }
+      else if (next === 't') { result += '\t'; i += 2 }
+      else if (next === '"') { result += '"'; i += 2 }
+      else if (next === '\\') { result += '\\'; i += 2 }
+      else { result += raw[i]; i++ }
+    } else if (raw[i] === '"') {
+      break // closing quote
+    } else if (raw[i] === '\n' || raw[i] === '\r') {
+      // Literal newline inside string (Claude's bug) — treat as \n
+      result += '\n'
+      if (raw[i] === '\r' && raw[i + 1] === '\n') i++ // handle \r\n as single newline
+      i++
+    } else {
+      result += raw[i]
+      i++
+    }
+  }
+  return result
 }
 
 async function streamTurn(
@@ -238,9 +319,14 @@ export async function runOrchestration(
     if (attempt === MAX_ATTEMPTS) {
       throw new Error(`Research failed after ${MAX_ATTEMPTS} attempts. ${decision.reason}`)
     }
-    currentBrief = decision.newBrief
+    if (!decision.newBrief || decision.newBrief.trim().length < 50) {
+      // If Claude failed to produce a usable rewritten brief, reuse the current one
+      await emit({ type: 'status', step: 'researching', detail: '⚠ Claude produced empty/short rewritten brief — reusing previous brief for retry.' })
+    } else {
+      currentBrief = decision.newBrief
+    }
     // Emit the rewritten brief so the frontend can capture it as a downloadable artifact
-    await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — [Rewritten Brief — Attempt ${attempt + 1}]\n\n${decision.newBrief}` })
+    await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — [Rewritten Brief — Attempt ${attempt + 1}]\n\n${currentBrief}` })
   }
 
   // ── Turn 3: Deck instructions ───────────────────────────────────────────────
@@ -252,7 +338,12 @@ export async function runOrchestration(
 
 Based on all research above, write the full sell-side advisory pitch deck instructions for Gamma AI.
 
-Use --- between every slide (Gamma slide breaks). textMode: preserve — your content is used verbatim.
+CRITICAL FORMATTING RULES:
+- Use \\n---\\n ONLY as the slide separator between slides. Each --- creates a new slide/card.
+- Do NOT use --- within a slide for visual separation. Use headings, bold text, or blank lines instead.
+- Do NOT use horizontal rules inside slide content.
+- textMode: preserve — your content is used verbatim on each slide.
+
 Tone: formal, data-driven, IFC institutional voice. Include citation footnotes where relevant.
 
 Slide structure:
