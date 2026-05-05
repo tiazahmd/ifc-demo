@@ -53,6 +53,7 @@ Identify active investors in this sector who could be potential capital provider
 - Do NOT ask for macro/country data — this is a pitch deck about hiring IFC, not a country report
 - Do NOT ask for detailed financial statements — if the client shared financials in uploaded docs, reference those; otherwise skip
 - Keep total brief under 1500 words — Perplexity performs better with focused briefs
+- CRITICAL — CITATIONS: Instruct Perplexity to include an inline hyperlink citation next to EVERY data point, fact, or claim. Format: [Source Name](URL) immediately after the statement. This allows the analyst to click and verify each claim directly. Do NOT use numbered footnotes or endnotes — inline hyperlinks only.
 
 **Phase 2 — Research Evaluation**
 When given a Perplexity research result, evaluate whether it constitutes sufficient research to produce a credible IFC sell-side pitch deck.
@@ -350,27 +351,22 @@ CRITICAL FORMATTING RULES:
 
 Tone: formal, data-driven, IFC institutional voice. Include citation footnotes where relevant.
 
-Slide structure:
+Slide structure (FOLLOW THIS ORDER EXACTLY):
 1. Cover — client name, sector, "IFC Advisory Services — Sell-Side Advisory", date, confidential
 2. Disclaimer — standard IFC advisory disclaimer (generate appropriate legal language)
-3. Table of Contents — list all sections
-4. Why IFC — generic IFC/World Bank Group overview, global reach, capabilities (IFC content)
-5. IFC Capabilities in [Region] — regional presence, staff, offices (IFC content)
-6. IFC Track Record in [Sector] — tombstone cards from research: project name, country, year, one-liner. Target 6-8 cards in a grid layout.
-7. Our Understanding of [Client] — the KEY custom slide. Deep narrative from Section 1 research: who they are, what they do, where they operate, project portfolio, strategic direction. This is the slide that shows IFC has done its homework.
-8. Transaction Structure — template showing current investors/shareholders on left, space for new investors on right. Generic sell-side capital raise structure.
-9. Investment Highlights — 4-6 compelling bullet points about why investors should be interested in this client. Synthesize from research. Should sound specific but draw on sector-standard language.
-10. Indicative Investors — active investors in this sector by category (DFI, PE, Sovereign, Impact, Strategic). From Section 3 research. For each: name, country, 1-2 line description. Note: names shown, but presented as indicative/non-binding.
-11. Scope of Work — standard sell-side advisory phases: Preparation (due diligence, materials), Outreach (investor contact, data room), Negotiation & Closing. Generic IFC content.
-12. Fee Structure — BLANK template. Note: "To be discussed and agreed during mandate formalisation."
-13. Timeline — indicative sell-side process timeline (6-9 months typical). Generic Gantt-style phases.
-14. Next Steps — standard: introductory meeting, mandate letter, data room, kick-off.
-15. Annex: Deal Team — placeholder for team bios.
-16. Executive Summary — WRITE THIS LAST. Summarize: our understanding of client needs, how IFC can support, IFC track record highlight, proposed next steps. This is the synthesis slide.
+3. Agenda — list all sections as a clean table of contents
+4. Executive Summary — WRITE THIS LAST but place it here. Summarize: our understanding of client needs, how IFC can support, IFC track record highlight, proposed next steps. This is the synthesis slide. Format for easy scanning (structured bullets/sections, not dense paragraphs).
+5. Our Understanding of [Client] — the KEY custom slide. Deep narrative from Section 1 research: who they are, what they do, where they operate, project portfolio, strategic direction. This is the slide that shows IFC has done its homework.
+6. IFC Track Record & Capabilities — combine: (a) IFC/World Bank Group overview, global reach, regional presence; (b) tombstone cards from research: project name, country, year, one-liner. Target 6-8 cards in a grid layout.
+7. Transaction Structure — USE THIS EXACT TEMPLATE STRUCTURE: Left side shows "Current Shareholders" with placeholder rows ([Shareholder Name] — [X]%). Right side shows "Proposed New Investors" with placeholder rows ([Investor Type] — [Target %]). Center shows company logo placeholder. Bottom note: "Indicative structure — subject to due diligence and final terms." Do NOT generate narrative text for this slide — it is a visual chart template only.
+8. Preliminary Views on Capital Raise & Potential Investors — combine: (a) Investment Highlights: 4-6 compelling bullet points about why investors should be interested. Synthesize from research. (b) Indicative Investors: active investors in this sector by category (DFI, PE, Sovereign, Impact, Strategic). From Section 3 research. For each: name, country, 1-2 line description. Presented as indicative/non-binding.
+9. Proposed Scope & Fees — (a) Scope of Work: standard sell-side advisory phases: Preparation (due diligence, materials), Outreach (investor contact, data room), Negotiation & Closing. (b) Fee Structure: "To be discussed and agreed during mandate formalisation." (c) Timeline: indicative sell-side process timeline (6-9 months typical). Generic Gantt-style phases.
+10. Next Steps — standard: introductory meeting, mandate letter, data room, kick-off.
+11. Contact Us — IFC advisory team contact placeholder. Deal team bios placeholder.
 
-For slides marked "IFC content", generate appropriate institutional language. The analyst will refine.
-For research-driven slides (6, 7, 9, 10), use specific data from the Perplexity research.
-For template slides (8, 12, 13, 15), provide the structure with placeholder content where needed.`,
+For research-driven slides (5, 6, 8), use specific data from the Perplexity research.
+For template slides (7, 9), provide the exact structure with placeholder content where needed.
+Slide 7 (Transaction Structure) MUST follow the template format specified above — do NOT generate narrative text for it.`,
   })
 
   const { text: instructions, costUSD: deckCost } = await streamTurn(messages, 'orchestrating', emit)
