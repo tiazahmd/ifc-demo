@@ -213,18 +213,15 @@ export function ProgressTracker({ events, companyName, country, sector, artifact
                     {!isDone && !isError && elapsed > 0 && (
                       <p className="text-xs text-fg-faint font-mono">{formatElapsed(elapsed)}</p>
                     )}
-                    {totalCost > 0 && (
-                      <p className="text-xs text-fg-faint font-mono">${totalCost.toFixed(2)}</p>
-                    )}
                   </div>
                 </div>
               </div>
 
               {isDone && latestEvent.downloadUrl && (
                 <div className="space-y-2">
-                  {(totalCost > 0 || elapsed > 0) && (
+                  {elapsed > 0 && (
                     <p className="text-xs text-center text-fg-faint">
-                      {totalCost > 0 ? `$${totalCost.toFixed(2)} · ` : ''}{formatElapsed(elapsed)}
+                      {formatElapsed(elapsed)}
                     </p>
                   )}
                   <a href={latestEvent.downloadUrl} download className="block w-full bg-navy text-white text-center py-3 rounded-lg text-sm font-semibold uppercase tracking-wider hover:translate-y-[-1px] hover:shadow-raised transition-all">
@@ -289,9 +286,7 @@ export function ProgressTracker({ events, companyName, country, sector, artifact
                 </div>
                 <p className="text-[11px] text-fg-faint font-mono ml-2 uppercase tracking-wider">live-activity</p>
               </div>
-              {totalCost > 0 && (
-                <p className="text-xs font-mono text-fg-faint">${totalCost.toFixed(2)}</p>
-              )}
+              {/* Cost hidden from external viewers */}
             </div>
             <div
               ref={activityRef}
