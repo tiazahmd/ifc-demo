@@ -290,7 +290,10 @@ export async function runOrchestration(
     if (sourceCount === 0 && attempt < MAX_ATTEMPTS) {
       fastRetries++
       await emit({ type: 'status', step: 'researching', detail:
-        `⚠ Zero sources returned — known Perplexity intermittent bug. Fast-retrying without Claude evaluation (saves ~$0.05). Attempt ${attempt}/${MAX_ATTEMPTS}.`
+        `⚠ Zero sources returned — known Perplexity intermittent bug. Waiting 30s then retrying (attempt ${attempt}/${MAX_ATTEMPTS}).`
+      })
+      // Wait 30s before retrying to avoid rate limiting
+      await new Promise(r => setTimeout(r, 30_000))
       })
       // Don't add to messages — no point evaluating empty research
       continue
@@ -342,6 +345,8 @@ CRITICAL FORMATTING RULES:
 - Use \\n---\\n ONLY as the slide separator between slides. Each --- creates a new slide/card.
 - Do NOT use --- within a slide for visual separation. Use headings, bold text, or blank lines instead.
 - Do NOT use horizontal rules inside slide content.
+- NEVER place --- between paragraphs, sections, or content blocks within the same slide.
+- The ONLY place --- should appear is between two separate slides. If you are tempted to use --- for visual spacing, use a blank line instead.
 - textMode: preserve — your content is used verbatim on each slide.
 
 Tone: formal, data-driven, IFC institutional voice. Include citation footnotes where relevant.
