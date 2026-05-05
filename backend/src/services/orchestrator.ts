@@ -294,7 +294,6 @@ export async function runOrchestration(
       })
       // Wait 30s before retrying to avoid rate limiting
       await new Promise(r => setTimeout(r, 30_000))
-      })
       // Don't add to messages — no point evaluating empty research
       continue
     }
