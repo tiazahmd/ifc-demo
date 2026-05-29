@@ -30,7 +30,7 @@ function stepIndex(step: string): number {
   const map: Record<string, number> = {
     inputs_received: 0, building_research_brief: 0,
     research_brief_ready: 1,
-    researching: 2, retry: 2, research_complete: 2, evaluating_research: 2,
+    researching: 2, retry: 2, research_complete: 2, evaluating_research: 2, spotcheck: 2,
     orchestrating: 3,
     generating_deck: 4, done: 4,
   }
@@ -71,6 +71,8 @@ export function ProgressTracker({ events, companyName, country, sector, artifact
   const activityRef = useRef<HTMLDivElement>(null)
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(Date.now())
+  const [stalled, setStalled] = useState(false)
+  const lastEventTimeRef = useRef(Date.now())
   const [downloadsOpen, setDownloadsOpen] = useState(true)
 
   // Scroll persistence
@@ -106,6 +108,14 @@ export function ProgressTracker({ events, companyName, country, sector, artifact
   useEffect(() => {
     if (isDone || isError) return
     const t = setInterval(() => setElapsed(Math.floor((Date.now() - startRef.current) / 1000)), 1000)
+    return () => clearInterval(t)
+  }, [isDone, isError])
+
+  // Stall watchdog: warn if no SSE events arrive for 90s
+  useEffect(() => { lastEventTimeRef.current = Date.now(); setStalled(false) }, [events.length])
+  useEffect(() => {
+    if (isDone || isError) return
+    const t = setInterval(() => { if (Date.now() - lastEventTimeRef.current > 90_000) setStalled(true) }, 5_000)
     return () => clearInterval(t)
   }, [isDone, isError])
 
@@ -217,6 +227,12 @@ export function ProgressTracker({ events, companyName, country, sector, artifact
                 </div>
               </div>
 
+              {stalled && !isDone && !isError && (
+                <p className="text-xs text-amber-500 bg-amber-500/10 rounded-md px-3 py-2">
+                  No updates for 90s+ — the connection may have stalled. Deep research can be slow, but if this persists the stream may have dropped. Check back or restart.
+                </p>
+              )}
+
               {isDone && latestEvent.downloadUrl && (
                 <div className="space-y-2">
                   {elapsed > 0 && (
@@ -234,7 +250,8 @@ export function ProgressTracker({ events, companyName, country, sector, artifact
               )}
               {isError && (
                 <div className="space-y-2">
-                  <p className="text-sm text-red-500">{latestEvent.detail}</p>
+                  <p className="text-xs font-semibold text-red-500 uppercase tracking-wider">Aborted</p>
+                  <p className="text-sm text-red-500 whitespace-pre-wrap break-words max-h-72 overflow-y-auto scrollbar-thin">{latestEvent.detail}</p>
                   <button onClick={onReset} className="w-full text-center py-2.5 rounded-lg text-sm font-medium text-fg-muted border border-border hover:bg-surface transition-colors">
                     Try Again
                   </button>
