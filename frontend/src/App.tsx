@@ -24,6 +24,7 @@ export default function App() {
   const researchBriefBuf = useRef('')
   const perplexityBuf = useRef('')
   const orchestratingBuf = useRef('')
+  const diagnosticsBuf = useRef('')
   const lastStepRef = useRef('')
   const perplexityAttemptRef = useRef(0)
 
@@ -90,6 +91,27 @@ export default function App() {
       }])
     }
 
+    // Perplexity per-attempt diagnostics → accumulate into one artifact
+    if (d.startsWith('Perplexity — [DIAGNOSTICS]')) {
+      diagnosticsBuf.current += d.replace('Perplexity — [DIAGNOSTICS]', '').trim() + '\n\n'
+      const content = diagnosticsBuf.current
+      setArtifacts(a => {
+        const ex = a.find(x => x.filename === 'perplexity-diagnostics.txt')
+        if (ex) return a.map(x => x.filename === 'perplexity-diagnostics.txt' ? { ...x, content, ready: true } : x)
+        return [...a, { name: 'Perplexity Diagnostics', filename: 'perplexity-diagnostics.txt', content, ready: true }]
+      })
+    }
+
+    // Spot-check report → artifact
+    if (d.startsWith('Orchestrator — [Spot-Check Report]')) {
+      const content = d.replace('Orchestrator — ', '')
+      setArtifacts(a => {
+        const ex = a.find(x => x.filename === 'spotcheck-report.md')
+        if (ex) return a.map(x => x.filename === 'spotcheck-report.md' ? { ...x, content, ready: true } : x)
+        return [...a, { name: 'Spot-Check Report', filename: 'spotcheck-report.md', content, ready: true }]
+      })
+    }
+
     // Deck instructions: step='orchestrating', detail starts with 'Orchestrator —'
     if (event.step === 'orchestrating' && d.startsWith('Orchestrator —')) {
       const text = d.replace('Orchestrator — ', '')
@@ -119,6 +141,7 @@ export default function App() {
     researchBriefBuf.current = ''
     perplexityBuf.current = ''
     orchestratingBuf.current = ''
+    diagnosticsBuf.current = ''
     lastStepRef.current = ''
     perplexityAttemptRef.current = 0
     setState('generating')
