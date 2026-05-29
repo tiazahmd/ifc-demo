@@ -1,95 +1,35 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
-import type { UserInput, Citation, ProgressEvent } from '../types.js'
+import type { UserInput, ProgressEvent } from '../types.js'
 import { attemptResearch } from './research.js'
+import { spotCheckCitations } from './spotcheck.js'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const MODEL = 'claude-sonnet-4-6'
 const THINKING = { type: 'enabled' as const, budget_tokens: 10000 }
-const MAX_TOKENS = 64000  // needs headroom for thinking (10K) + long deck instructions (up to 50K)
+const MAX_TOKENS = 64000
 
-const SYSTEM = `You are an IFC advisory orchestrator managing a three-phase pipeline to produce a sell-side advisory pitch deck.
-
-The pitch deck's purpose is to convince a client to hire IFC as their advisor for raising capital (sell-side advisory). The deck must demonstrate that IFC understands the client, has relevant sector experience, and can connect them with the right investors.
+const SYSTEM = `You are an IFC advisory orchestrator producing a sell-side advisory pitch deck (convincing a client to hire IFC to raise capital). You run two phases: (1) write a research brief for Perplexity deep research, (2) write Gamma deck instructions from the verified research.
 
 **Phase 1 — Research Brief**
-When given company details and any uploaded documents, produce a focused, specific research brief (max 1500 words) for Perplexity deep research. Structure as THREE sections:
+Produce a focused, specific research brief for Perplexity deep research, in THREE sections:
 
-**SECTION 1 — Company Intelligence**
-Research the client company in depth. The goal is to build a comprehensive "Our Understanding of [Client]" narrative. Ask Perplexity to find:
-- Corporate identity: legal name, founding year, headquarters, ownership structure, key shareholders
-- Leadership: CEO/MD, board members, key executives
-- Business model: what they do, what sector, what sub-sector specifically
-- Geographic footprint: countries of operation, key markets
-- Project portfolio: operational projects AND pipeline/development-stage projects (with capacity/scale, location, status where available)
-- Strategic direction: what are they trying to achieve? Capital raise? Expansion? New markets?
-- Recent news: press coverage, partnerships, awards, regulatory developments in last 2 years
+**SECTION 1 — Company Intelligence**: corporate identity (legal name, founding, HQ, ownership, shareholders), leadership, business model & exact sub-sector, geographic footprint, project portfolio (operational AND pipeline), strategic direction, recent news (last 2 years). If a website URL is given, instruct Perplexity to crawl it (About, Projects, Team, Investors pages). If documents are uploaded, reference their facts and ask Perplexity to verify and expand them with public sources.
 
-If uploaded documents are provided, reference specific facts from them and ask Perplexity to verify, expand, and supplement with public sources. Do NOT just repeat the uploaded content — use it as a springboard for deeper research.
+**SECTION 2 — IFC Track Record in the Sector**: search disclosures.ifc.org and "IFC [sector] [region]" for 8-12 projects — name, country, year, IFC commitment (USD), one-liner.
 
-If a company website URL is provided, instruct Perplexity to crawl it thoroughly — especially "About", "Projects/Portfolio", "Team/Leadership", and "Investors/Partners" pages.
+**SECTION 3 — Sector Investor Landscape**: 15-20 active investors by category (DFI, PE, Sovereign, Impact, Strategic) — name, country, AUM/fund size, 1-2 line description.
 
-**SECTION 2 — IFC Track Record in [Sector]**
-Search for IFC's investment and advisory track record in the client's sector and geographic markets. The output will populate a "tombstone" slide showing IFC's credibility. Ask Perplexity to:
-- Search IFC's project disclosure page (disclosures.ifc.org) for projects in [sector] across [client's markets/regions]
-- Also search "IFC [sector] [region]" on Google for press releases and project announcements
-- For each project found, extract: project name, country, year, IFC commitment amount (USD), one-line description
-- Target: 8-12 relevant projects
-- Prioritize: same sub-sector, same geography, recent (last 5-7 years)
+**CRITICAL GROUNDING RULES — put these verbatim at the TOP of the brief you write:**
+- "Use LIVE web research ONLY. Do NOT answer from training data, prior knowledge, or general background. Every single fact must come from a source you retrieved in this session."
+- "Cite every data point with Perplexity's native numbered citation markers [1], [2], etc. mapped to your search_results. Do NOT use markdown hyperlinks or footnotes."
+- "If you cannot retrieve live sources, returning 0 cited sources is a FAILURE. An empty, uncited, or 'based on general knowledge' report is unacceptable and will be rejected. Do not produce a report without real, cited web sources."
 
-**SECTION 3 — Sector Investor Landscape**
-Identify active investors in this sector who could be potential capital providers for the client. The output will populate an "Indicative Investors" slide. Ask Perplexity to:
-- Categorize investors by type: Development Finance Institutions (DFIs), Private Equity funds, Sovereign Wealth Funds, Impact Investors, Strategic Corporates
-- For each investor: name, country of incorporation, approximate AUM or fund size, 1-2 line description of their activity in this sector
-- Target: 15-20 investors across categories
-- Scope to investors active in [client's geographic markets] and [sector]
-- If a capital raise amount is known or can be inferred from uploaded documents, note the deal size range to help scope investor relevance
+Do NOT impose a word limit — be as comprehensive as the sources allow. Do NOT ask for macro/country data. Output ONLY the brief, no preamble.
 
-**Brief Style Rules:**
-- Be direct and specific — write questions a journalist would ask, not an academic essay
-- Name specific sources to search (IFC disclosure page, company website URL, sector databases)
-- If the user provided a company website, include the URL explicitly and instruct Perplexity to crawl it
-- Do NOT ask for macro/country data — this is a pitch deck about hiring IFC, not a country report
-- Do NOT ask for detailed financial statements — if the client shared financials in uploaded docs, reference those; otherwise skip
-- Keep total brief under 1500 words — Perplexity performs better with focused briefs
-- CRITICAL — CITATIONS: Instruct Perplexity to include an inline hyperlink citation next to EVERY data point, fact, or claim. Format: [Source Name](URL) immediately after the statement. This allows the analyst to click and verify each claim directly. Do NOT use numbered footnotes or endnotes — inline hyperlinks only.
-
-**Phase 2 — Research Evaluation**
-When given a Perplexity research result, evaluate whether it constitutes sufficient research to produce a credible IFC sell-side pitch deck.
-
-IMPORTANT — Source metadata context:
-Perplexity's sonar-deep-research has a known intermittent bug where web searches execute successfully but the citations/search_results arrays are returned empty. The pipeline pre-filters these failures and auto-retries, so you should rarely see zero-source results. However, if you do, or if the source count seems low relative to the content depth, evaluate the CONTENT INDEPENDENTLY of the source count. Specifically:
-
-1. Does the report contain specific, verifiable data points (named companies, dollar figures, dates, percentages, named sources inline)?
-2. Does it contain inline citation markers like [1], [Source Name, Year], or named references?
-3. Does it read like genuine research (specific, falsifiable claims) or like LLM padding (hedged estimates, "approximately," "believed to be," "would require verification")?
-4. Is there enough data to populate: "Our Understanding of Client" slide, IFC tombstone cards, indicative investor list, and investment highlights?
-
-A report with 0 formal source metadata but rich inline citations and specific data points is USABLE — flag the metadata gap but PROCEED.
-A report with 50 sources but only hedged generalities is NOT usable — RETRY.
-
-Write your assessment, then end your response with exactly one fenced JSON block (no other fenced JSON elsewhere in your response):
-
-\`\`\`json
-{"action":"PROCEED"}
-\`\`\`
-or
-\`\`\`json
-{"action":"RETRY","reason":"<why this result is insufficient>","newBrief":"<full rewritten brief — materially different angle from the previous attempt>"}
-\`\`\`
-or
-\`\`\`json
-{"action":"ABORT","message":"<clear user-facing message explaining why research cannot proceed>"}
-\`\`\`
-
-**Phase 3 — Deck Instructions**
-When asked to write deck instructions, produce structured markdown for Gamma AI. This phase will be specified in the deck generation prompt. Follow whatever slide structure is provided there.`
-
-type Decision =
-  | { action: 'PROCEED' }
-  | { action: 'RETRY'; reason: string; newBrief: string }
-  | { action: 'ABORT'; message: string }
+**Phase 2 — Deck Instructions**
+When asked, produce structured markdown deck instructions for Gamma AI following the slide structure provided in that prompt, using only the verified research supplied.`
 
 function buildPhase1Prompt(input: UserInput, fileContents: string[]): string {
   return [
@@ -104,119 +44,38 @@ function buildPhase1Prompt(input: UserInput, fileContents: string[]): string {
   ].filter(Boolean).join('\n')
 }
 
-function buildEvaluationPrompt(
-  report: string,
-  citations: Citation[],
-  sourceCount: number,
-  numSearchQueries: number,
-  attempt: number,
-  maxAttempts: number
-): string {
-  const citationBlock = citations.slice(0, 30)
-    .map((c, i) => `[${i + 1}] ${c.title ?? 'Source'} — ${c.url}`)
-    .join('\n')
+function buildDeckPrompt(input: UserInput, report: string): string {
+  return `Company: ${input.companyName} | Country: ${input.country} | Sector: ${input.sector} | Engagement: ${input.engagementType}
 
-  const metadataNote = sourceCount === 0 && numSearchQueries > 0
-    ? `\n⚠️ NOTE: Perplexity executed ${numSearchQueries} web searches but returned 0 source metadata (known intermittent platform bug). Evaluate the CONTENT on its own merits — look for inline citations, specific data points, and verifiable claims.\n`
-    : ''
+Use the verified deep-research report below as your SOLE source of facts. Preserve the [N] citation markers next to facts you use.
 
-  return `Perplexity deep research returned the following (attempt ${attempt}/${maxAttempts}). ${sourceCount} source(s) found. ${numSearchQueries} web searches executed.
-${metadataNote}
---- RESEARCH REPORT ---
+--- VERIFIED RESEARCH REPORT ---
 ${report}
+--- END RESEARCH REPORT ---
 
---- SOURCES ---
-${citationBlock || 'No source metadata returned (see note above).'}
----
+Based ONLY on the research above, write the full sell-side advisory pitch deck instructions for Gamma AI.
 
-Evaluate this result and end your response with the required JSON decision block.`
-}
+CRITICAL FORMATTING RULES:
+- Use \\n---\\n ONLY as the slide separator between slides. Each --- creates a new slide.
+- Do NOT use --- within a slide. Use headings, bold text, or blank lines for visual separation.
+- textMode: preserve — content is used verbatim on each slide.
 
-function parseDecision(text: string): Decision {
-  const match = text.match(/```json\s*([\s\S]*?)\s*```/)
-  if (!match) throw new Error('Orchestrator evaluation did not return a valid JSON decision block')
+Tone: formal, data-driven, IFC institutional voice.
 
-  const raw = match[1].trim()
+Slide structure (FOLLOW THIS ORDER EXACTLY):
+1. Cover — client name, sector, "IFC Advisory Services — Sell-Side Advisory", date, confidential
+2. Disclaimer — standard IFC advisory disclaimer
+3. Agenda — table of contents
+4. Executive Summary — synthesis: understanding of client needs, how IFC can support, track-record highlight, next steps. Structured bullets, not dense paragraphs.
+5. Our Understanding of ${input.companyName} — deep narrative from Section 1 research: who they are, what they do, footprint, portfolio, strategic direction.
+6. IFC Track Record & Capabilities — IFC/WBG overview + tombstone cards from research (name, country, year, one-liner). 6-8 cards.
+7. Transaction Structure — TEMPLATE ONLY: left "Current Shareholders" ([Name] — [X]%), right "Proposed New Investors" ([Type] — [Target %]), center company logo placeholder, bottom note "Indicative structure — subject to due diligence and final terms." No narrative text.
+8. Preliminary Views on Capital Raise & Potential Investors — (a) 4-6 investment highlights from research; (b) indicative investors by category (DFI, PE, Sovereign, Impact, Strategic) from Section 3 — name, country, 1-2 lines. Mark as indicative/non-binding.
+9. Proposed Scope & Fees — scope (Preparation, Outreach, Negotiation & Closing); fees "To be discussed and agreed during mandate formalisation"; indicative 6-9 month timeline.
+10. Next Steps — introductory meeting, mandate letter, data room, kick-off.
+11. Contact Us — IFC advisory team + deal team placeholders.
 
-  // Attempt 1: direct parse (works if Claude properly escaped everything)
-  try {
-    const parsed = JSON.parse(raw)
-    if (!parsed.action || !['PROCEED', 'RETRY', 'ABORT'].includes(parsed.action)) {
-      throw new Error('Missing or invalid action field')
-    }
-    return parsed as Decision
-  } catch { /* fall through */ }
-
-  // Attempt 2: The most common failure is literal newlines inside string values.
-  // Strategy: find the JSON on a single logical line by collapsing only newlines
-  // that appear inside quoted strings. We do this by replacing newlines between
-  // the opening { and closing } with \\n, but being careful about the structure.
-  // Simpler approach: extract action first, then handle each case.
-  const actionMatch = raw.match(/"action"\s*:\s*"(PROCEED|RETRY|ABORT)"/)
-  if (!actionMatch) throw new Error('Could not find action in decision JSON. Raw start: ' + raw.slice(0, 300))
-
-  if (actionMatch[1] === 'PROCEED') return { action: 'PROCEED' }
-
-  if (actionMatch[1] === 'ABORT') {
-    // Extract message: everything between "message":" and the last "} or end
-    const msgStart = raw.indexOf('"message"')
-    if (msgStart === -1) return { action: 'ABORT', message: 'Research aborted (could not parse message)' }
-    const msgValStart = raw.indexOf(':', msgStart) + 1
-    const msgContent = extractJsonStringValue(raw, msgValStart)
-    return { action: 'ABORT', message: msgContent }
-  }
-
-  // RETRY: extract reason and newBrief
-  const reasonStart = raw.indexOf('"reason"')
-  const briefStart = raw.indexOf('"newBrief"')
-
-  let reason = 'Quality insufficient'
-  let newBrief = ''
-
-  if (reasonStart !== -1) {
-    const valStart = raw.indexOf(':', reasonStart) + 1
-    reason = extractJsonStringValue(raw, valStart)
-  }
-
-  if (briefStart !== -1) {
-    const valStart = raw.indexOf(':', briefStart) + 1
-    newBrief = extractJsonStringValue(raw, valStart)
-  }
-
-  return { action: 'RETRY', reason, newBrief }
-}
-
-/** Extract a JSON string value starting from a position (skips whitespace and opening quote) */
-function extractJsonStringValue(raw: string, startPos: number): string {
-  // Skip whitespace and find opening quote
-  let i = startPos
-  while (i < raw.length && (raw[i] === ' ' || raw[i] === '\t' || raw[i] === '\n' || raw[i] === '\r')) i++
-  if (raw[i] !== '"') return raw.slice(startPos, startPos + 200) // fallback
-
-  i++ // skip opening quote
-  let result = ''
-  while (i < raw.length) {
-    if (raw[i] === '\\' && i + 1 < raw.length) {
-      // Escaped character
-      const next = raw[i + 1]
-      if (next === 'n') { result += '\n'; i += 2 }
-      else if (next === 't') { result += '\t'; i += 2 }
-      else if (next === '"') { result += '"'; i += 2 }
-      else if (next === '\\') { result += '\\'; i += 2 }
-      else { result += raw[i]; i++ }
-    } else if (raw[i] === '"') {
-      break // closing quote
-    } else if (raw[i] === '\n' || raw[i] === '\r') {
-      // Literal newline inside string (Claude's bug) — treat as \n
-      result += '\n'
-      if (raw[i] === '\r' && raw[i + 1] === '\n') i++ // handle \r\n as single newline
-      i++
-    } else {
-      result += raw[i]
-      i++
-    }
-  }
-  return result
+For slides 5, 6, 8 use specific cited data from the research. For slides 7, 9 use the template structure with placeholders.`
 }
 
 async function streamTurn(
@@ -224,33 +83,23 @@ async function streamTurn(
   step: string,
   emit: (e: ProgressEvent) => Promise<void>
 ): Promise<{ text: string; costUSD: number }> {
-  const stream = client.messages.stream({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    thinking: THINKING,
-    system: SYSTEM,
-    messages,
-  })
-
+  const stream = client.messages.stream({ model: MODEL, max_tokens: MAX_TOKENS, thinking: THINKING, system: SYSTEM, messages })
   let buffer = ''
   for await (const event of stream) {
     if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
       buffer += event.delta.text
-      if (buffer.length >= 200) {
-        await emit({ type: 'status', step, detail: `Orchestrator — ${buffer}` })
-        buffer = ''
-      }
+      if (buffer.length >= 200) { await emit({ type: 'status', step, detail: `Orchestrator — ${buffer}` }); buffer = '' }
     }
   }
   if (buffer) await emit({ type: 'status', step, detail: `Orchestrator — ${buffer}` })
-
   const response = await stream.finalMessage()
   const textBlock = response.content.find(b => b.type === 'text')
   if (!textBlock || textBlock.type !== 'text') throw new Error('No text block in Claude response')
-
   const costUSD = (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 1_000_000
   return { text: textBlock.text, costUSD }
 }
+
+const MAX_ATTEMPTS = 2 // 1 real attempt + 1 retry, then abort
 
 export async function runOrchestration(
   input: UserInput,
@@ -260,115 +109,44 @@ export async function runOrchestration(
   const messages: MessageParam[] = []
   let totalCost = 0
 
-  // ── Turn 1: Research brief ──────────────────────────────────────────────────
+  // ── Turn 1: Research brief ─────────────────────────────────────────────────
   await emit({ type: 'status', step: 'building_research_brief', detail: 'Orchestrator — Analysing inputs. Building Perplexity research brief...' })
   messages.push({ role: 'user', content: buildPhase1Prompt(input, fileContents) })
-
   const { text: brief, costUSD: briefCost } = await streamTurn(messages, 'building_research_brief', emit)
   messages.push({ role: 'assistant', content: brief })
   totalCost += briefCost
   await emit({ type: 'status', step: 'research_brief_ready', costUSD: totalCost })
 
-  // ── Research loop (up to 5 attempts) ───────────────────────────────────────
-  // Fast-retry: if Perplexity returns 0 sources (known intermittent bug),
-  // retry immediately without burning a Claude evaluation turn.
-  const MAX_ATTEMPTS = 5
-  let currentBrief = brief
-  let fastRetries = 0
-
+  // ── Research loop (max 2 attempts), grounding gated ───────────────────────
+  let research
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    if (attempt > 1) {
-      await emit({ type: 'status', step: 'retry', detail: `⚠ Retry ${attempt - 1}/${MAX_ATTEMPTS} — ${fastRetries > 0 ? 'Fast-retry (zero sources detected)' : 'Rewriting research brief with new strategy'}...` })
+    if (attempt > 1) await emit({ type: 'status', step: 'retry', detail: `⚠ Retry ${attempt - 1}/${MAX_ATTEMPTS - 1} — previous attempt was not grounded in live web sources. Retrying once...` })
+    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Starting deep research (attempt ${attempt}/${MAX_ATTEMPTS})...` })
+
+    research = await attemptResearch(brief, emit)
+    totalCost += research.costUSD
+    await emit({ type: 'status', step: 'research_complete', detail: `Perplexity — [DIAGNOSTICS]\n${JSON.stringify({ attempt, sources: research.sourceCount, searches: research.numSearchQueries, grounded: research.grounded, reason: research.groundingReason ?? null, costUSD: Number(research.costUSD.toFixed(4)), citations: research.citations.map(c => ({ url: c.url, title: c.title })) }, null, 2)}`, costUSD: totalCost })
+
+    if (research.grounded) break
+
+    if (attempt >= MAX_ATTEMPTS) {
+      throw new Error(`Perplexity is the bottleneck — research aborted. Across ${MAX_ATTEMPTS} consecutive deep-research attempts, Perplexity returned un-grounded results (${research.groundingReason}). It is NOT performing live web research and appears to be answering from training data. A sell-side pitch deck cannot be built on un-sourced content, so we are aborting rather than producing a deck with fabricated or unverifiable facts. This is a Perplexity-side failure, not a problem with your inputs — please retry in a few minutes.`)
     }
+  }
+  const result = research!
 
-    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Starting deep research (attempt ${attempt}/${MAX_ATTEMPTS}). Takes 2-5 minutes...` })
+  // ── Citation spot-check (anti-hallucination) ──────────────────────────────
+  const spot = await spotCheckCitations(result.report, result.citations, emit)
+  const discrepancyReport = spot.verdicts.map(v => `[${v.n}] ${v.status} — ${v.url}\n     ${v.detail}`).join('\n')
+  await emit({ type: 'status', step: 'spotcheck', detail: `Orchestrator — [Spot-Check Report]\nChecked ${spot.verdicts.length} random sources · ${spot.failCount} failed (fabricated/unsupported)\n\n${discrepancyReport}` })
 
-    const { report, citations, sourceCount, numSearchQueries, costUSD: researchCost } = await attemptResearch(currentBrief, emit)
-    totalCost += researchCost
-    await emit({ type: 'status', step: 'research_complete', detail: `${sourceCount} sources found (${numSearchQueries} searches executed)`, costUSD: totalCost })
-
-    // ── Fast-retry: skip Claude evaluation if zero sources (known Perplexity bug) ──
-    if (sourceCount === 0 && attempt < MAX_ATTEMPTS) {
-      fastRetries++
-      await emit({ type: 'status', step: 'researching', detail:
-        `⚠ Zero sources returned — known Perplexity intermittent bug. Waiting 30s then retrying (attempt ${attempt}/${MAX_ATTEMPTS}).`
-      })
-      // Wait 30s before retrying to avoid rate limiting
-      await new Promise(r => setTimeout(r, 30_000))
-      // Don't add to messages — no point evaluating empty research
-      continue
-    }
-
-    // Inject Perplexity result into the conversation thread
-    messages.push({ role: 'user', content: buildEvaluationPrompt(report, citations, sourceCount, numSearchQueries, attempt, MAX_ATTEMPTS) })
-
-    // ── Turn 2: Evaluate ──────────────────────────────────────────────────────
-    await emit({ type: 'status', step: 'evaluating_research', detail: `Orchestrator — Evaluating research quality (attempt ${attempt}/${MAX_ATTEMPTS})...` })
-
-    const { text: evalText, costUSD: evalCost } = await streamTurn(messages, 'evaluating_research', emit)
-    messages.push({ role: 'assistant', content: evalText })
-    totalCost += evalCost
-    await emit({ type: 'status', step: 'evaluating_research', costUSD: totalCost })
-
-    const decision = parseDecision(evalText)
-
-    if (decision.action === 'PROCEED') break
-
-    if (decision.action === 'ABORT') {
-      throw new Error(decision.message)
-    }
-
-    // RETRY — use Claude's rewritten brief for the next Perplexity call
-    if (attempt === MAX_ATTEMPTS) {
-      throw new Error(`Research failed after ${MAX_ATTEMPTS} attempts. ${decision.reason}`)
-    }
-    if (!decision.newBrief || decision.newBrief.trim().length < 50) {
-      // If Claude failed to produce a usable rewritten brief, reuse the current one
-      await emit({ type: 'status', step: 'researching', detail: '⚠ Claude produced empty/short rewritten brief — reusing previous brief for retry.' })
-    } else {
-      currentBrief = decision.newBrief
-    }
-    // Emit the rewritten brief so the frontend can capture it as a downloadable artifact
-    await emit({ type: 'status', step: 'building_research_brief', detail: `Orchestrator — [Rewritten Brief — Attempt ${attempt + 1}]\n\n${currentBrief}` })
+  if (!spot.passed) {
+    throw new Error(`Source verification FAILED — research aborted. ${spot.failCount} of ${spot.verdicts.length} spot-checked citations were fabricated or unsupported by their source pages. Aborting to avoid shipping a deck built on fake sources. Review the discrepancies below to judge whether Perplexity hallucinated sources or the checker was too strict:\n\n${discrepancyReport}`)
   }
 
-  // ── Turn 3: Deck instructions ───────────────────────────────────────────────
-  await emit({ type: 'status', step: 'orchestrating', detail: 'Orchestrator — Building sell-side pitch deck instructions...' })
-
-  messages.push({
-    role: 'user',
-    content: `Company: ${input.companyName} | Country: ${input.country} | Sector: ${input.sector} | Engagement: ${input.engagementType}
-
-Based on all research above, write the full sell-side advisory pitch deck instructions for Gamma AI.
-
-CRITICAL FORMATTING RULES:
-- Use \\n---\\n ONLY as the slide separator between slides. Each --- creates a new slide/card.
-- Do NOT use --- within a slide for visual separation. Use headings, bold text, or blank lines instead.
-- Do NOT use horizontal rules inside slide content.
-- NEVER place --- between paragraphs, sections, or content blocks within the same slide.
-- The ONLY place --- should appear is between two separate slides. If you are tempted to use --- for visual spacing, use a blank line instead.
-- textMode: preserve — your content is used verbatim on each slide.
-
-Tone: formal, data-driven, IFC institutional voice. Include citation footnotes where relevant.
-
-Slide structure (FOLLOW THIS ORDER EXACTLY):
-1. Cover — client name, sector, "IFC Advisory Services — Sell-Side Advisory", date, confidential
-2. Disclaimer — standard IFC advisory disclaimer (generate appropriate legal language)
-3. Agenda — list all sections as a clean table of contents
-4. Executive Summary — WRITE THIS LAST but place it here. Summarize: our understanding of client needs, how IFC can support, IFC track record highlight, proposed next steps. This is the synthesis slide. Format for easy scanning (structured bullets/sections, not dense paragraphs).
-5. Our Understanding of [Client] — the KEY custom slide. Deep narrative from Section 1 research: who they are, what they do, where they operate, project portfolio, strategic direction. This is the slide that shows IFC has done its homework.
-6. IFC Track Record & Capabilities — combine: (a) IFC/World Bank Group overview, global reach, regional presence; (b) tombstone cards from research: project name, country, year, one-liner. Target 6-8 cards in a grid layout.
-7. Transaction Structure — USE THIS EXACT TEMPLATE STRUCTURE: Left side shows "Current Shareholders" with placeholder rows ([Shareholder Name] — [X]%). Right side shows "Proposed New Investors" with placeholder rows ([Investor Type] — [Target %]). Center shows company logo placeholder. Bottom note: "Indicative structure — subject to due diligence and final terms." Do NOT generate narrative text for this slide — it is a visual chart template only.
-8. Preliminary Views on Capital Raise & Potential Investors — combine: (a) Investment Highlights: 4-6 compelling bullet points about why investors should be interested. Synthesize from research. (b) Indicative Investors: active investors in this sector by category (DFI, PE, Sovereign, Impact, Strategic). From Section 3 research. For each: name, country, 1-2 line description. Presented as indicative/non-binding.
-9. Proposed Scope & Fees — (a) Scope of Work: standard sell-side advisory phases: Preparation (due diligence, materials), Outreach (investor contact, data room), Negotiation & Closing. (b) Fee Structure: "To be discussed and agreed during mandate formalisation." (c) Timeline: indicative sell-side process timeline (6-9 months typical). Generic Gantt-style phases.
-10. Next Steps — standard: introductory meeting, mandate letter, data room, kick-off.
-11. Contact Us — IFC advisory team contact placeholder. Deal team bios placeholder.
-
-For research-driven slides (5, 6, 8), use specific data from the Perplexity research.
-For template slides (7, 9), provide the exact structure with placeholder content where needed.
-Slide 7 (Transaction Structure) MUST follow the template format specified above — do NOT generate narrative text for it.`,
-  })
-
+  // ── Turn 2: Deck instructions ──────────────────────────────────────────────
+  await emit({ type: 'status', step: 'orchestrating', detail: 'Orchestrator — Sources verified. Building sell-side pitch deck instructions...' })
+  messages.push({ role: 'user', content: buildDeckPrompt(input, result.report) })
   const { text: instructions, costUSD: deckCost } = await streamTurn(messages, 'orchestrating', emit)
   totalCost += deckCost
   await emit({ type: 'status', step: 'orchestrating', detail: `Orchestrator — Deck instructions complete. Cost: $${deckCost.toFixed(3)}` })

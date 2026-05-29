@@ -3,149 +3,127 @@ import type { Citation, ProgressEvent } from '../types.js'
 const BASE = 'https://api.perplexity.ai'
 
 interface PerplexityUsage {
-  prompt_tokens?: number
   completion_tokens?: number
-  total_tokens?: number
-  citation_tokens?: number
   num_search_queries?: number
-  reasoning_tokens?: number
+  citation_tokens?: number
   cost?: { total_cost: number }
 }
 
 interface PerplexityResponse {
-  id?: string
   model?: string
-  object?: string
-  created?: number
-  choices: Array<{ message: { content: string }; finish_reason: string }>
+  choices: Array<{ message: { content: string }; finish_reason?: string }>
   citations?: string[]
-  search_results?: Array<{ title: string; url: string; date?: string; snippet?: string; source?: string }>
+  search_results?: Array<{ title?: string; url: string; snippet?: string }>
   usage?: PerplexityUsage
-  [key: string]: unknown  // catch any fields we haven't typed
 }
 
-interface ResearchResult {
+interface AsyncJob {
+  id: string
+  status: 'CREATED' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED'
+  response?: PerplexityResponse
+  error_message?: string | null
+}
+
+export interface ResearchResult {
   report: string
   citations: Citation[]
   sourceCount: number
   numSearchQueries: number
   costUSD: number
+  grounded: boolean
+  groundingReason?: string
 }
 
-// Single Perplexity attempt — retry logic and quality judgment live in the orchestrator.
+// Phrases that prove the model answered from training data instead of live web research.
+const FAILURE_PHRASES = [
+  'not possible to crawl', 'web search is not available', 'real-time web search is not available',
+  'no pre-fetched search results', 'knowledge cutoff', 'general background knowledge up to',
+  'without access to', 'unable to browse', 'do not have access to', 'cannot access external',
+]
+
+// sonar-deep-research prepends a <think>…</think> reasoning trace — strip it.
+function stripThink(s: string): string {
+  if (!s.includes('</think>')) return s
+  return s.replace(/^[\s\S]*?<\/think>\s*/, '').trim() || s
+}
+
+function assessGrounding(report: string, sourceCount: number): { grounded: boolean; reason?: string } {
+  if (sourceCount === 0) return { grounded: false, reason: 'Perplexity returned 0 cited sources' }
+  if (!/\[\d+\]/.test(report)) return { grounded: false, reason: 'Report contains no inline [N] citation markers' }
+  const lc = report.toLowerCase()
+  const hit = FAILURE_PHRASES.find(p => lc.includes(p))
+  if (hit) return { grounded: false, reason: `Report admits it lacked live web access: "${hit}"` }
+  return { grounded: true }
+}
+
+const authHeaders = () => ({ Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' })
+
+// Single Perplexity deep-research attempt via the async API (no connection timeouts).
 export async function attemptResearch(
   brief: string,
   emit: (e: ProgressEvent) => Promise<void>
 ): Promise<ResearchResult> {
   const truncatedBrief = brief.length > 12000 ? brief.slice(0, 12000) + '\n\n[Brief truncated]' : brief
 
-  const TIMEOUT_MS = 8 * 60 * 1000 // 8 minutes max for deep research
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS)
-
-  // Emit progress pings every 30s so the frontend knows we're alive
-  let elapsed = 0
-  const ticker = setInterval(async () => {
-    elapsed += 30
-    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Deep research in progress... ${Math.floor(elapsed / 60)}m ${elapsed % 60}s elapsed` })
-  }, 30_000)
-
-  let res: Response
-  try {
-    res = await fetch(`${BASE}/v1/sonar`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+  // ── Submit async job ──────────────────────────────────────────────────────
+  const submitRes = await fetch(`${BASE}/v1/async/sonar`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      request: {
         model: 'sonar-deep-research',
         messages: [{ role: 'user', content: truncatedBrief }],
-      }),
-      signal: controller.signal,
-    })
-  } catch (err: unknown) {
-    clearTimeout(timeout)
-    clearInterval(ticker)
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(`Perplexity deep research timed out after ${TIMEOUT_MS / 60000} minutes. The query may be too complex or Perplexity may be experiencing delays.`)
-    }
-    throw err
-  } finally {
-    clearTimeout(timeout)
-    clearInterval(ticker)
-  }
-
-  if (res.status === 429) throw new Error('Perplexity rate limit hit (429). Too many requests — wait 60 seconds and retry.')
-  if (res.status === 401) throw new Error('Perplexity API key invalid or expired (401). Check PERPLEXITY_API_KEY on Render.')
-  if (!res.ok) {
-    const errBody = await res.text()
-    throw new Error(`Perplexity HTTP ${res.status}: ${errBody.slice(0, 300)}`)
-  }
-
-  const rawText = await res.text()
-  await emit({ type: 'status', step: 'researching', detail: `Perplexity — Raw response (${rawText.length} chars): ${rawText.slice(0, 200)}` })
-
-  const data = JSON.parse(rawText) as PerplexityResponse
-
-  // ── DEBUG: Log response structure so we can diagnose citation extraction ──
-  const topKeys = Object.keys(data)
-  const citationsLen = data.citations?.length ?? 'undefined'
-  const searchResultsLen = data.search_results?.length ?? 'undefined'
-  const numSearchQueries = data.usage?.num_search_queries ?? 'undefined'
-  const citationTokens = data.usage?.citation_tokens ?? 'undefined'
-
-  await emit({ type: 'status', step: 'researching', detail:
-    `Perplexity — DEBUG response structure:\n` +
-    `  Top-level keys: [${topKeys.join(', ')}]\n` +
-    `  citations (string[] of URLs): ${citationsLen}\n` +
-    `  search_results (object[]): ${searchResultsLen}\n` +
-    `  usage.num_search_queries: ${numSearchQueries}\n` +
-    `  usage.citation_tokens: ${citationTokens}`
+        search_mode: 'web',       // pin to live web sources
+        disable_search: false,    // never answer from training data alone
+        reasoning_effort: 'high', // thorough deep research
+      },
+    }),
   })
+  if (submitRes.status === 401) throw new Error('Perplexity API key invalid or expired (401).')
+  if (submitRes.status === 429) throw new Error('Perplexity rate limit hit (429). Wait and retry.')
+  if (!submitRes.ok) throw new Error(`Perplexity submit HTTP ${submitRes.status}: ${(await submitRes.text()).slice(0, 300)}`)
 
-  // If citations exist, log first 3 for verification
-  if (data.citations?.length) {
-    await emit({ type: 'status', step: 'researching', detail:
-      `Perplexity — First 3 citations: ${data.citations.slice(0, 3).join('\n  ')}`
-    })
+  const submitted = await submitRes.json() as AsyncJob
+  const jobId = submitted.id
+  await emit({ type: 'status', step: 'researching', detail: `Perplexity — Async deep-research job submitted (${jobId}). reasoning_effort=high, search_mode=web. Polling...` })
+
+  // ── Poll until COMPLETED / FAILED ─────────────────────────────────────────
+  const POLL_MS = 15_000
+  const MAX_MS = 25 * 60 * 1000
+  let job = submitted
+  let elapsed = 0
+  while (job.status !== 'COMPLETED' && job.status !== 'FAILED') {
+    await new Promise(r => setTimeout(r, POLL_MS))
+    elapsed += POLL_MS
+    if (elapsed > MAX_MS) throw new Error('Perplexity async job exceeded 25 minutes — aborting poll.')
+    const pollRes = await fetch(`${BASE}/v1/async/sonar/${jobId}`, { headers: authHeaders() })
+    if (!pollRes.ok) throw new Error(`Perplexity poll HTTP ${pollRes.status}`)
+    job = await pollRes.json() as AsyncJob
+    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Deep research ${job.status.toLowerCase()}... ${Math.floor(elapsed / 60000)}m ${(elapsed / 1000) % 60}s elapsed` })
   }
-  if (data.search_results?.length) {
-    const preview = data.search_results.slice(0, 3).map(s => `${s.title} — ${s.url}`).join('\n  ')
-    await emit({ type: 'status', step: 'researching', detail:
-      `Perplexity — First 3 search_results: ${preview}`
-    })
-  }
 
-  const report = data.choices?.[0]?.message?.content ?? ''
+  if (job.status === 'FAILED') throw new Error(`Perplexity job FAILED: ${job.error_message ?? 'no error message'}`)
+  const data = job.response
+  if (!data) throw new Error('Perplexity job COMPLETED but returned no response body.')
 
-  // Source count: prefer search_results, fall back to citations array
+  const report = stripThink(data.choices?.[0]?.message?.content ?? '')
   const sourceCount = (data.search_results?.length ?? 0) || (data.citations?.length ?? 0)
+  const numSearchQueries = data.usage?.num_search_queries ?? 0
+  const costUSD = data.usage?.cost?.total_cost ?? 0
+  const citations: Citation[] = data.search_results?.length
+    ? data.search_results.map(s => ({ url: s.url, title: s.title, snippet: s.snippet }))
+    : (data.citations ?? []).map(url => ({ url }))
 
-  const totalCostNum = data.usage?.cost?.total_cost ?? 0
-  const tokens = data.usage?.completion_tokens ?? 0
-  const model = data.model ?? 'unknown'
+  const { grounded, reason } = assessGrounding(report, sourceCount)
 
   await emit({ type: 'status', step: 'researching', detail:
-    `Perplexity — COMPLETED. Model: ${model}. ${sourceCount} sources. ` +
-    `${numSearchQueries} search queries. ${tokens} tokens. Cost: $${totalCostNum.toFixed(2)}`
-  })
+    `Perplexity — Completed. ${sourceCount} sources · ${numSearchQueries} searches · $${costUSD.toFixed(2)} · grounded=${grounded}${reason ? ` (${reason})` : ''}` })
 
-  if (data.search_results?.length) {
-    const citationLines = data.search_results.map((s, i) => `[${i + 1}] ${s.title ?? 'Source'}\n    ${s.url}`).join('\n')
-    await emit({ type: 'status', step: 'researching', detail: `Perplexity — Sources (${sourceCount}):\n${citationLines}` })
-  }
-
-  await emit({ type: 'status', step: 'researching', detail: `Perplexity — Research Report (${report.length} chars):` })
+  // Stream the report so the frontend captures it as a downloadable artifact.
   const CHUNK = 3000
   for (let i = 0; i < report.length; i += CHUNK) {
     await emit({ type: 'status', step: 'researching', detail: `Perplexity — Report (${Math.floor(i / CHUNK) + 1}/${Math.ceil(report.length / CHUNK)}):\n${report.slice(i, i + CHUNK)}` })
   }
 
-  // Build citations: prefer search_results (richer), fall back to citations (URL strings)
-  const citations: Citation[] = data.search_results?.length
-    ? data.search_results.map(s => ({ url: s.url, title: s.title, snippet: s.snippet }))
-    : (data.citations ?? []).map(url => ({ url }))
-
-  return { report, citations, sourceCount, numSearchQueries: data.usage?.num_search_queries ?? 0, costUSD: totalCostNum }
+  return { report, citations, sourceCount, numSearchQueries, costUSD, grounded, groundingReason: reason }
 }
