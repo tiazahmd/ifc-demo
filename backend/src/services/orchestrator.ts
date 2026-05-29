@@ -144,7 +144,7 @@ export async function runOrchestration(
   await emit({ type: 'status', step: 'spotcheck', detail: `Orchestrator — [Spot-Check Report]\nChecked ${spot.verdicts.length} random sources · ${spot.failCount} failed (fabricated/unsupported)\n\n${discrepancyReport}` })
 
   if (!spot.passed) {
-    throw new Error(`Source verification FAILED — research aborted. ${spot.failCount} of ${spot.verdicts.length} spot-checked citations were fabricated or unsupported by their source pages. Aborting to avoid shipping a deck built on fake sources. Review the discrepancies below to judge whether Perplexity hallucinated sources or the checker was too strict:\n\n${discrepancyReport}`)
+    throw new Error(`Source verification FAILED — research aborted. ${spot.failCount} of ${spot.verdicts.length} spot-checked citations were fabricated (dead URL) or contradicted/misattributed (a readable source page disproves the claim or is about a different entity). Aborting to avoid shipping a deck built on fake sources. Review the discrepancies below to judge whether Perplexity hallucinated sources or the checker was too strict:\n\n${discrepancyReport}`)
   }
 
   // ── Turn 2: Deck instructions ──────────────────────────────────────────────
