@@ -21,10 +21,13 @@ Produce a focused, specific research brief for Perplexity deep research, in THRE
 
 **SECTION 3 — Sector Investor Landscape**: 15-20 active investors by category (DFI, PE, Sovereign, Impact, Strategic) — name, country, AUM/fund size, 1-2 line description.
 
-**CRITICAL GROUNDING RULES — put these verbatim at the TOP of the brief you write:**
-- "Use LIVE web research ONLY. Do NOT answer from training data, prior knowledge, or general background. Every single fact must come from a source you retrieved in this session."
+**CRITICAL GROUNDING RULES — you MUST place these verbatim as BOTH the very FIRST block AND the very LAST block of the brief you write (bookend the brief so Perplexity cannot miss them):**
+- "Use LIVE web research ONLY. Do NOT answer from training data, prior knowledge, or general background. Every single fact must come from a source you retrieved in THIS session via web search."
+- "Run COMPREHENSIVE web searches across every section BEFORE writing anything. Do not begin composing the report until you have actually executed the searches and gathered real, citable sources."
 - "Cite every data point with Perplexity's native numbered citation markers [1], [2], etc. mapped to your search_results. Do NOT use markdown hyperlinks or footnotes."
-- "If you cannot retrieve live sources, returning 0 cited sources is a FAILURE. An empty, uncited, or 'based on general knowledge' report is unacceptable and will be rejected. Do not produce a report without real, cited web sources."
+- "Returning 0 cited sources — or ANY claim not backed by a retrieved source — is an automatic FAILURE. An empty, uncited, or 'based on general knowledge / training data' report is unacceptable and WILL BE REJECTED outright. If live web search is unavailable, STOP and explicitly state that search failed — do NOT fall back to prior knowledge or fabricate."
+
+The opening block should be headed "CRITICAL GROUNDING RULES — READ BEFORE EXECUTING ANY SEARCH". The closing block should be headed "FINAL REMINDER BEFORE YOU RESPOND" and restate that zero sources = rejected and every claim must carry a live [N] citation.
 
 Do NOT impose a word limit — be as comprehensive as the sources allow. Do NOT ask for macro/country data. Output ONLY the brief, no preamble.
 

@@ -6,13 +6,13 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 export interface SpotVerdict {
   n: number
   url: string
-  status: 'SUPPORTED' | 'UNSUPPORTED' | 'FABRICATED' | 'INACCESSIBLE'
+  status: 'SUPPORTED' | 'UNSUPPORTED' | 'FABRICATED' | 'INACCESSIBLE' | 'INCONCLUSIVE'
   detail: string
 }
 
 export interface SpotCheckResult {
   verdicts: SpotVerdict[]
-  failCount: number // FABRICATED + UNSUPPORTED
+  failCount: number // only FABRICATED + UNSUPPORTED (genuine contradiction) count; unreadable/blocked pages do NOT
   passed: boolean   // failCount < 2
 }
 
@@ -28,7 +28,10 @@ async function fetchUrl(url: string): Promise<Fetched> {
     const ct = res.headers.get('content-type') ?? ''
     if (!ct.includes('html') && !ct.includes('text')) return { state: 'inaccessible', info: `reachable but non-HTML (${ct || 'binary/PDF'}) — content not extractable, URL is real` }
     const html = await res.text()
-    const text = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 3500)
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<(nav|header|footer|aside)[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 3500)
     return { state: 'ok', text, info: 'reachable' }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -75,14 +78,24 @@ export async function spotCheckCitations(
 
   if (toVerify.length) {
     const items = toVerify.map(f => `### Source [${f.n}]\nURL: ${f.url}\nTitle: ${f.title ?? '(none)'}\nCLAIM IT IS CITED FOR: ${f.claim}\nPAGE EXCERPT:\n${f.res.text}`).join('\n\n')
-    const prompt = `You are verifying that a research tool did not fabricate or misattribute sources. For EACH source below, decide if the page excerpt plausibly supports the claim it is cited for (or, if the claim is "(citation not referenced inline...)", whether the page is a real, topically relevant source).\n\n${items}\n\nReturn ONLY a JSON array, one object per source: [{"n":<number>,"verdict":"SUPPORTED"|"UNSUPPORTED","reason":"<short>"}]`
+    const prompt = `You are checking whether a research tool FABRICATED or MISATTRIBUTED sources. You are NOT a web crawler — these excerpts are raw HTTP fetches and are often incomplete (JS-rendered pages, paywalls, and sites like ifc.org frequently return only navigation/boilerplate). Inability to read a page is NORMAL and must NOT be treated as a problem with the source.
+
+For EACH source, return one verdict:
+- "SUPPORTED": the excerpt is readable AND is consistent with / supports the cited claim, OR (for "not referenced inline" claims) the page is a real, topically relevant source.
+- "UNSUPPORTED": ONLY if the excerpt has REAL, READABLE body content that clearly CONTRADICTS the claim or is plainly on an unrelated topic. This is a strong accusation of fabrication — use it sparingly.
+- "INCONCLUSIVE": the excerpt is mostly navigation/menus/boilerplate/empty/JS-shell, so the claim can neither be confirmed nor denied. When in doubt, choose INCONCLUSIVE. Missing data because the page didn't fully load is INCONCLUSIVE, never UNSUPPORTED.
+
+${items}
+
+Return ONLY a JSON array, one object per source: [{"n":<number>,"verdict":"SUPPORTED"|"UNSUPPORTED"|"INCONCLUSIVE","reason":"<short>"}]`
     const msg = await client.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 1500, messages: [{ role: 'user', content: prompt }] })
     const text = msg.content.find(b => b.type === 'text')?.type === 'text' ? (msg.content.find(b => b.type === 'text') as { text: string }).text : ''
     let parsed: Array<{ n: number; verdict: string; reason: string }> = []
     try { parsed = JSON.parse(text.match(/\[[\s\S]*\]/)?.[0] ?? '[]') } catch { /* leave empty */ }
     for (const f of toVerify) {
       const v = parsed.find(p => p.n === f.n)
-      verdicts.push({ n: f.n, url: f.url, status: v?.verdict === 'UNSUPPORTED' ? 'UNSUPPORTED' : 'SUPPORTED', detail: v?.reason ?? 'no verdict returned' })
+      const verdict = v?.verdict === 'UNSUPPORTED' ? 'UNSUPPORTED' : v?.verdict === 'INCONCLUSIVE' ? 'INCONCLUSIVE' : 'SUPPORTED'
+      verdicts.push({ n: f.n, url: f.url, status: verdict, detail: v?.reason ?? 'no verdict returned' })
     }
   }
 
